@@ -1,0 +1,156 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+pytest_cache/
+*.cover
+.coverage.*
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+db.sqlite3
+
+# Data files - RAW DATA KORUNMALI
+datasets/raw/
+datasets/normalized/
+datasets/processed/
+datasets/temp/
+temp_uploads/
+data/raw/
+data/normalized/
+data/processed/
+
+# Model checkpoints - büyük dosyalar
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+models/checkpoints/
+models/cache/
+checkpoints/
+
+# Hugging Face cache
+.cache/
+huggingface/
+
+# FastAPI
+.fastapi_cache/
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.next/
+out/
+.nuxt/
+dist/
+.cache/
+.parcel-cache/
+
+# Frontend build
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/out/
+
+# Test artifacts
+.test_cache/
+test_results/
+test_*.txt
+test_*.md
+test_*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Security - ASLA COMMIT ETMEYİN
+*.key
+*.pem
+*.cert
+*.crt
+secrets/
+credentials/
+.secrets/
+
+# Large files
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# Documentation build
+docs/_build/
+site/

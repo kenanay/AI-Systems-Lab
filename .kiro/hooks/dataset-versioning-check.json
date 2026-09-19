@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Dataset Versioning Check",
+      "trigger": "PostFileSave",
+      "description": "Dataset ile ilgili dosyalarda immutable versioning ve data lineage ilkelerine uygunluğu kontrol et",
+      "matcher": "src/dataset/.*\\.py$",
+      "action": {
+        "type": "agent",
+        "prompt": "Dataset yönetimi kodunu kontrol et:\n1. Dataset versioning yapılıyor mu? (semantic versioning kullanımı)\n2. Immutable dataset ilkesi korunuyor mu? (Mevcut versiyon değiştirilmeden yeni versiyon oluşturuluyor mu?)\n3. Data lineage için gerekli metadata kaydediliyor mu? (file_id, dataset_version, source_id, vb.)\n4. Schema evolution için schema_version, parser_version tutulmuş mu?\n5. Duplicate detection ve quality scoring mekanizmaları var mı?\n\nData management steering dosyasındaki ilkelere uygunluğu doğrula."
+      }
+    }
+  ]
+}

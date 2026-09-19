@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Learning Content Check",
+      "trigger": "PostFileCreate",
+      "description": "Öğrenme içeriği oluşturulduğunda standardlara uygunluğu kontrol et",
+      "matcher": "docs/learning/.*\\.(md|yaml)$",
+      "action": {
+        "type": "agent",
+        "prompt": "Öğrenme içeriğini kontrol et. Learning content standard'a göre:\n1. Standart öğrenme kartı yapısı var mı? (Ne yapıyoruz, Neden yapıyoruz, Ön bilgi, Girdi, Çıktı, Matematik, Sezgisel açıklama, Kod, vb.)\n2. Ön bilgiler (prerequisites) tanımlanmış mı?\n3. Matematiksel formüller varsa semboller açıklanmış mı?\n4. Tensor operasyonları için shape bilgisi var mı?\n5. Öğretici kod ile profesyonel kod karşılaştırması yapılmış mı?\n6. \"Sık yapılan hata\" ve \"İpucu\" bölümleri var mı?\n7. Sonraki adıma geçiş açıklanmış mı?\n\nEksik kısımlar varsa uyar ve standart yapıyı hatırlat."
+      }
+    }
+  ]
+}

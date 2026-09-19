@@ -1,0 +1,335 @@
+# Self-Attention Öğrenme İçeriği Örneği
+
+concept:
+  id: "self_attention"
+  title: "Self-Attention"
+  language: "tr"
+  standard_term: "Self-Attention"
+  turkish_term: "Öz-Dikkat"
+  category: "model"
+  difficulty: "intermediate"
+  estimated_duration: 45
+  
+  prerequisites:
+    required:
+      - "matrix_multiplication"
+      - "dot_product"
+      - "softmax"
+    recommended:
+      - "linear_algebra_basics"
+      - "probability_distribution"
+  
+  sections:
+    what:
+      text: |
+        Self-Attention, bir sequence içindeki her tokenın diğer tokenlarla olan ilişkisini 
+        hesaplayan mekanizmadır. Her token, sequence'teki tüm tokenları "gözlemler" ve 
+        her birine ne kadar "dikkat edeceğini" öğrenir.
+      examples:
+        - "Kütahya'da eğitim çalışmaları yürütülmektedir. -> 'eğitim' kelimesi 'çalışmaları' ve 'yürütülmektedir' kelimelerine yüksek attention verir"
+        - "Model cümlede hangi kelimelerin birbirleriyle ilişkili olduğunu öğrenir"
+    
+    why:
+      text: |
+        Self-Attention, modelin context'i dinamik olarak anlamasını sağlar. Sabit bir window 
+        yerine, her token için önemli olan tokenları öğrenir. Bu sayede uzun-mesafeli 
+        ilişkiler yakalanabilir.
+      use_cases:
+        - "Uzun cümlelerdeki bağlam ilişkilerini yakalama"
+        - "Anaphora resolution (zamir çözümleme)"
+        - "Semantic similarity detection"
+    
+    intuition:
+      text: |
+        Bir sınıftaki öğrenciler düşünün. Her öğrenci (token), diğer öğrencilerin 
+        (tokenların) söylediklerine ne kadar dikkat edeceğine karar verir. Bazı öğrenciler 
+        belirli konularda daha bilgilidir, bu yüzden o konular geldiğinde onlara daha fazla 
+        dikkat edilir.
+      analogy: |
+        Bir toplantıda katılımcılar konuşurken, sen kimin söylediklerinin senin için daha 
+        önemli/alakalı olduğuna karar verirsin ve ona daha çok dikkat edersin.
+    
+    math:
+      formula: |
+        Q = XW_Q
+        K = XW_K
+        V = XW_V
+        
+        Attention(Q,K,V) = softmax(QK^T / sqrt(d_k))V
+      
+      symbols:
+        - symbol: "X"
+          meaning: "Input sequence, her satır bir token'ın embedding'i"
+          example: "shape: [batch, seq_len, d_model]"
+        
+        - symbol: "W_Q, W_K, W_V"
+          meaning: "Projection matrisleri (öğrenilen parametreler)"
+          example: "shape: [d_model, d_k]"
+        
+        - symbol: "Q"
+          meaning: "Query - 'Ne arıyorum?'"
+          example: "shape: [batch, seq_len, d_k]"
+        
+        - symbol: "K"
+          meaning: "Key - 'Ben neyim?'"
+          example: "shape: [batch, seq_len, d_k]"
+        
+        - symbol: "V"
+          meaning: "Value - 'Bilgim ne?'"
+          example: "shape: [batch, seq_len, d_v]"
+        
+        - symbol: "QK^T"
+          meaning: "Attention scores - Her token çifti arası benzerlik"
+          example: "shape: [batch, seq_len, seq_len]"
+        
+        - symbol: "sqrt(d_k)"
+          meaning: "Scaling factor - Dot product büyüklüğünü normalize eder"
+          example: "d_k=64 ise sqrt(d_k)=8"
+        
+        - symbol: "softmax"
+          meaning: "Skorları probability distribution'a dönüştürür"
+          example: "Toplamı 1 olan ağırlıklar"
+      
+      shapes:
+        - name: "Q"
+          shape: "[batch, seq_len, d_k]"
+          description: "Her token için query vector"
+        
+        - name: "K"
+          shape: "[batch, seq_len, d_k]"
+          description: "Her token için key vector"
+        
+        - name: "scores"
+          shape: "[batch, seq_len, seq_len]"
+          description: "Her token çifti için attention score"
+        
+        - name: "output"
+          shape: "[batch, seq_len, d_v]"
+          description: "Weighted combination of values"
+      
+      numerical_example: |
+        Basitleştirilmiş örnek (seq_len=3, d_k=2):
+        
+        Q = [[1, 0],
+             [0, 1],
+             [1, 1]]
+        
+        K = [[1, 0],
+             [0, 1],
+             [1, 0]]
+        
+        QK^T = [[1, 0, 1],
+                [0, 1, 0],
+                [1, 1, 1]]
+        
+        Scaled: QK^T / sqrt(2) = [[0.71, 0, 0.71],
+                                   [0, 0.71, 0],
+                                   [0.71, 0.71, 0.71]]
+        
+        Softmax(scores) = attention weights
+        
+        Token 0: %42 kendine, %0 token 1'e, %42 token 2'ye dikkat eder
+    
+    code:
+      learning_mode: |
+        import torch
+        import math
+        
+        def self_attention(x, w_q, w_k, w_v):
+            """
+            Self-attention hesaplama (öğrenme modu - adım adım)
+            
+            Args:
+                x: Input tensor, shape [batch, seq_len, d_model]
+                w_q, w_k, w_v: Weight matrices, shape [d_model, d_k]
+            
+            Returns:
+                output: shape [batch, seq_len, d_k]
+            """
+            # 1. Q, K, V projections
+            # x shape: [B, T, D]
+            # w_q shape: [D, d_k]
+            q = x @ w_q  # [B, T, d_k]
+            k = x @ w_k  # [B, T, d_k]
+            v = x @ w_v  # [B, T, d_v]
+            
+            # 2. Attention scores
+            # q shape: [B, T, d_k]
+            # k.T shape: [B, d_k, T]
+            scores = q @ k.transpose(-2, -1)  # [B, T, T]
+            
+            # 3. Scaling
+            d_k = q.size(-1)
+            scores = scores / math.sqrt(d_k)
+            
+            # 4. Softmax
+            attention_weights = torch.softmax(scores, dim=-1)  # [B, T, T]
+            
+            # 5. Apply attention to values
+            # attention_weights shape: [B, T, T]
+            # v shape: [B, T, d_v]
+            output = attention_weights @ v  # [B, T, d_v]
+            
+            return output, attention_weights
+      
+      professional_mode: |
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        
+        class SelfAttention(nn.Module):
+            """Self-Attention module (production-ready)"""
+            
+            def __init__(self, d_model: int, d_k: int):
+                super().__init__()
+                self.d_k = d_k
+                self.q_proj = nn.Linear(d_model, d_k, bias=False)
+                self.k_proj = nn.Linear(d_model, d_k, bias=False)
+                self.v_proj = nn.Linear(d_model, d_k, bias=False)
+            
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                # x shape: [batch, seq_len, d_model]
+                q = self.q_proj(x)  # [B, T, d_k]
+                k = self.k_proj(x)  # [B, T, d_k]
+                v = self.v_proj(x)  # [B, T, d_k]
+                
+                # Efficient attention using PyTorch's scaled_dot_product_attention
+                output = F.scaled_dot_product_attention(q, k, v)
+                
+                return output
+      
+      language: "python"
+      framework: "pytorch"
+    
+    architecture:
+      module_path: "src/model/attention.py"
+      class_name: "SelfAttention"
+      function_name: "forward"
+      called_by:
+        - "MultiHeadAttention"
+        - "TransformerBlock"
+    
+    real_data:
+      enabled: true
+      dataset_type: "text"
+      example_input: "Kütahya'da eğitim çalışmaları"
+      example_output: "Attention heatmap gösterimi"
+    
+    alternatives:
+      - name: "Cross-Attention"
+        description: "İki farklı sequence arasında attention"
+        pros:
+          - "Encoder-decoder mimarilerinde kullanılır"
+          - "Farklı modaliteler arası ilişki"
+        cons:
+          - "Daha fazla hesaplama"
+          - "İki sequence gerekir"
+      
+      - name: "Local Attention"
+        description: "Sadece yakın tokenlara attention"
+        pros:
+          - "Daha az hesaplama"
+          - "Uzun sequencelarda verimli"
+        cons:
+          - "Uzun mesafeli ilişkileri kaçırabilir"
+    
+    pitfalls:
+      - error: "QK^T shape uyuşmazlığı"
+        why: "Q ve K'nın son boyutu aynı değil"
+        solution: "Q ve K projection'larının aynı d_k'ya sahip olduğundan emin ol"
+      
+      - error: "Scaling unutulması"
+        why: "Dot product büyük değerler üretir, softmax saturation"
+        solution: "Her zaman sqrt(d_k) ile böl"
+      
+      - error: "Causal mask unutulması (GPT)"
+        why: "Model gelecekteki tokenları görür (cheating)"
+        solution: "Upper triangular mask kullan"
+    
+    tips:
+      - text: "Attention weights'i görselleştir - hangi tokenların birbirine baktığını gör"
+        type: "debugging"
+      
+      - text: "d_k çok büyük olmasın - 64 genellikle yeterli"
+        type: "performance"
+      
+      - text: "Attention matrix [seq_len, seq_len] - uzun sequencelerde quadratic memory!"
+        type: "best_practice"
+    
+    history:
+      text: |
+        Self-Attention, "Attention Is All You Need" paper'ında (2017) Transformer 
+        mimarisinin temel bileşeni olarak tanıtıldı. RNN/LSTM'lerin yerine geçerek 
+        paralel hesaplamayı mümkün kıldı.
+      paper: "Attention Is All You Need (Vaswani et al., 2017)"
+      year: 2017
+    
+    next_step:
+      concept_id: "multi_head_attention"
+      explanation: |
+        Tek bir attention yerine, birden fazla "head" kullanarak farklı ilişki 
+        tiplerini paralel olarak öğreneceğiz.
+  
+  quiz:
+    - question: "Q shape'i [2, 8, 64], K shape'i [2, 8, 64] ise QK^T sonucunun shape'i nedir?"
+      answer: "[2, 8, 8]"
+      explanation: |
+        Matrix multiplication: [2, 8, 64] @ [2, 64, 8] = [2, 8, 8]
+        K transpose edildiği için son iki boyut yer değiştirir.
+      hints:
+        - "K transpose edildiğinde shape nasıl değişir?"
+        - "Matrix multiplication kuralı: [*, m, n] @ [*, n, p] = [*, m, p]"
+    
+    - question: "Attention'da scaling (sqrt(d_k)) neden gereklidir?"
+      answer: "Dot product büyük değerler üretir, softmax'ı saturation'a iter"
+      explanation: |
+        d_k büyüdükçe dot product varyansı artar. Büyük değerler softmax'ta 
+        çok keskin bir dağılım oluşturur (gradient flow problemi). Scaling 
+        bunu normalize eder.
+      hints:
+        - "Dot product'ın büyüklüğü d_k ile nasıl ilişkili?"
+        - "Softmax çok büyük değerlerle ne olur?"
+  
+  experiments:
+    - title: "Attention Heatmap Görselleştirme"
+      description: "Basit bir cümle için attention weight'lerini görselleştir"
+      instructions:
+        - "3-5 kelimelik Türkçe cümle seç"
+        - "Tokenize et"
+        - "Random Q, K, V matrisleri oluştur"
+        - "Attention weights hesapla"
+        - "Heatmap olarak çiz"
+      expected_outcome: |
+        Her tokenın hangi tokenlara ne kadar dikkat ettiğini gösteren bir matrix göreceksin.
+        Bazı token çiftleri arasında güçlü ilişkiler olacak.
+    
+    - title: "Scaling Etkisini Gözlemle"
+      description: "Scaling ile scaling olmadan attention weight'leri karşılaştır"
+      instructions:
+        - "Aynı Q, K ile iki hesaplama yap"
+        - "Birinde sqrt(d_k) ile böl, diğerinde bölme"
+        - "Softmax sonrası weight dağılımlarını karşılaştır"
+      expected_outcome: |
+        Scaling olmadan weight'ler çok keskin (0 veya 1'e yakın) olacak.
+        Scaling ile daha smooth bir dağılım göreceksin.
+  
+  resources:
+    - title: "Attention Is All You Need"
+      url: "https://arxiv.org/abs/1706.03762"
+      type: "paper"
+    
+    - title: "The Illustrated Transformer"
+      url: "https://jalammar.github.io/illustrated-transformer/"
+      type: "blog"
+    
+    - title: "PyTorch Attention Tutorial"
+      url: "https://pytorch.org/tutorials/beginner/transformer_tutorial.html"
+      type: "documentation"
+  
+  metadata:
+    created_at: "2024-01-15"
+    updated_at: "2024-01-15"
+    version: "1.0.0"
+    author: "AI Research Lab"
+    reviewed_by: []
+    status: "published"

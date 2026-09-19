@@ -1,0 +1,113 @@
+# Model Konfigürasyonu Örneği
+# Mini-GPT için temel ayarlar
+
+model:
+  name: "mini-gpt"
+  version: "0.1.0"
+  
+  # Model Mimarisi
+  architecture:
+    type: "gpt"
+    vocab_size: 8000
+    context_length: 512
+    d_model: 256
+    n_layers: 6
+    n_heads: 8
+    d_ff: 1024
+    dropout: 0.1
+    
+  # Positional Encoding
+  positional_encoding:
+    type: "learned"  # "learned" veya "sinusoidal"
+    
+  # Activation
+  activation: "gelu"  # "gelu", "relu", "swish"
+  
+  # Normalization
+  normalization:
+    type: "layer_norm"  # "layer_norm", "rms_norm"
+    eps: 1e-5
+
+# Training Konfigürasyonu
+training:
+  # Optimizer
+  optimizer:
+    type: "adamw"
+    learning_rate: 0.0003
+    weight_decay: 0.01
+    betas: [0.9, 0.95]
+    eps: 1e-8
+    
+  # Scheduler
+  scheduler:
+    type: "cosine"  # "cosine", "linear", "constant"
+    warmup_steps: 500
+    
+  # Training Settings
+  batch_size: 16
+  gradient_accumulation_steps: 1
+  max_steps: 10000
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 10
+  
+  # Mixed Precision
+  mixed_precision: true
+  dtype: "bfloat16"  # "float32", "float16", "bfloat16"
+  
+  # Gradient Clipping
+  max_grad_norm: 1.0
+  
+  # Checkpoint
+  checkpoint:
+    save_best: true
+    save_last: true
+    metric: "val_loss"
+    mode: "min"
+
+# Dataset Konfigürasyonu
+dataset:
+  train_path: "datasets/training/pretraining/train.jsonl"
+  val_path: "datasets/training/pretraining/val.jsonl"
+  tokenizer_path: "tokenizers/mini-gpt-tokenizer"
+  
+  # Data Loading
+  num_workers: 4
+  prefetch_factor: 2
+  pin_memory: true
+
+# Evaluation Konfigürasyonu
+evaluation:
+  metrics:
+    - "loss"
+    - "perplexity"
+    - "accuracy"
+  
+  generation:
+    enabled: true
+    prompts:
+      - "Eğitim sisteminde"
+      - "Öğrenciler"
+    max_length: 50
+    temperature: 1.0
+    top_k: 50
+    top_p: 0.9
+
+# Hardware Konfigürasyonu
+hardware:
+  device: "cuda"  # "cpu", "cuda", "mps"
+  device_ids: [0]  # GPU IDs for multi-GPU
+  
+# Logging
+logging:
+  level: "INFO"
+  log_dir: "experiments/mini-gpt-v1/logs"
+  tensorboard: true
+  wandb:
+    enabled: false
+    project: "local-ai-research-lab"
+    entity: null
+
+# Seed (Reproducibility)
+seed: 42
+deterministic: true

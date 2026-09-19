@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Documentation Check",
+      "trigger": "PostFileCreate",
+      "description": "Yeni dosya oluşturulduğunda uygun dokümantasyon ve type hints olduğundan emin ol",
+      "matcher": "src/.*\\.py$",
+      "action": {
+        "type": "agent",
+        "prompt": "Yeni oluşturulan Python dosyasını kontrol et:\n1. Modül seviyesinde docstring var mı? (Ne yapıyor, neden var)\n2. Sınıflar docstring ile açıklanmış mı?\n3. Public fonksiyonlar docstring'e sahip mi?\n4. Type hints kullanılmış mı? (Args ve Returns)\n5. Tensor operasyonları varsa shape bilgisi yorumda belirtilmiş mi?\n6. Logger tanımlı mı?\n\nCode standards steering dosyasındaki standartlara uygunluğu kontrol et."
+      }
+    }
+  ]
+}

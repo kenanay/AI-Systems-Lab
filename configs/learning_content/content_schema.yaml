@@ -1,0 +1,142 @@
+# Öğrenme İçeriği Şeması
+# Bu dosya öğrenme içeriği oluştururken kullanılacak standart yapıyı tanımlar
+
+# Concept tanımı
+concept:
+  # Benzersiz ID
+  id: string  # Örnek: "self_attention", "tokenization", "backpropagation"
+  
+  # Başlık
+  title: string  # Örnek: "Self-Attention"
+  
+  # Dil
+  language: string  # "tr" veya "en"
+  
+  # Standart terim (teknik terim)
+  standard_term: string  # Örnek: "Self-Attention"
+  
+  # Türkçe karşılık (opsiyonel)
+  turkish_term: string  # Örnek: "Öz-Dikkat"
+  
+  # Kategori
+  category: string  # "data", "tokenizer", "model", "training", "inference", vb.
+  
+  # Zorluk seviyesi
+  difficulty: string  # "beginner", "intermediate", "advanced"
+  
+  # Tahmini süre (dakika)
+  estimated_duration: integer
+  
+  # Ön bilgiler
+  prerequisites:
+    required: list[string]  # Zorunlu ön bilgiler
+    recommended: list[string]  # Önerilen ön bilgiler
+  
+  # İçerik bölümleri
+  sections:
+    # Ne yapıyoruz?
+    what:
+      text: string
+      examples: list[string]  # Opsiyonel örnekler
+    
+    # Neden yapıyoruz?
+    why:
+      text: string
+      use_cases: list[string]  # Kullanım alanları
+    
+    # Sezgisel açıklama
+    intuition:
+      text: string
+      analogy: string  # Günlük hayat benzetmesi
+    
+    # Matematiksel açıklama
+    math:
+      formula: string  # LaTeX formatında
+      symbols:  # Sembol açıklamaları
+        - symbol: string
+          meaning: string
+          example: string
+      shapes:  # Tensor shape'leri
+        - name: string
+          shape: string
+          description: string
+      numerical_example: string  # Sayısal örnek
+    
+    # Kod karşılığı
+    code:
+      learning_mode: string  # Basit, açıklayıcı kod
+      professional_mode: string  # Optimize, production kod
+      language: string  # "python"
+      framework: string  # "pytorch", "numpy"
+    
+    # Yazılım mimarisindeki yeri
+    architecture:
+      module_path: string  # "src/model/attention.py"
+      class_name: string
+      function_name: string
+      called_by: list[string]  # Hangi modüller kullanıyor
+    
+    # Gerçek veri üzerinde
+    real_data:
+      enabled: boolean
+      dataset_type: string
+      example_input: string
+      example_output: string
+    
+    # Alternatifler
+    alternatives:
+      - name: string
+        description: string
+        pros: list[string]
+        cons: list[string]
+    
+    # Sık yapılan hatalar
+    pitfalls:
+      - error: string
+        why: string
+        solution: string
+    
+    # İpuçları
+    tips:
+      - text: string
+        type: string  # "performance", "debugging", "best_practice"
+    
+    # Tarihçe (opsiyonel)
+    history:
+      text: string
+      paper: string  # Paper adı ve link
+      year: integer
+    
+    # Sonraki adım
+    next_step:
+      concept_id: string
+      explanation: string  # Neden bir sonraki adıma geçiyoruz
+  
+  # Kontrol soruları
+  quiz:
+    - question: string
+      answer: string
+      explanation: string
+      hints: list[string]
+  
+  # Mini deneyler
+  experiments:
+    - title: string
+      description: string
+      instructions: list[string]
+      expected_outcome: string
+  
+  # Kaynaklar
+  resources:
+    - title: string
+      url: string
+      type: string  # "paper", "blog", "video", "documentation"
+  
+  # Metadata
+  metadata:
+    created_at: datetime
+    updated_at: datetime
+    version: string
+    author: string
+    reviewed_by: list[string]
+    status: string  # "draft", "review", "published"

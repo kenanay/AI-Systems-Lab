@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Data Security Check",
+      "trigger": "PostFileSave",
+      "description": "Veri işleme kodunda PII ve güvenlik kontrollerinin yapıldığından emin ol",
+      "matcher": "src/(ingestion|dataset|normalization)/.*\\.py$",
+      "action": {
+        "type": "agent",
+        "prompt": "Bu dosyada veri işleme yapılıyor mu? Yapılıyorsa:\n1. PII (kişisel veri) kontrolü yapılıyor mu?\n2. Lisans ve telif hakları kontrol ediliyor mu?\n3. security_level, pii, training_allowed gibi metadata alanları uygun şekilde işleniyor mu?\n4. Hassas veri training dataset'e otomatik dahil edilmiyor mu?\n5. Data lineage için gerekli ID'ler ve versiyonlar kaydediliyor mu?\n\nProject principles'a göre: PII içeren veya lisansı uygun olmayan veri kullanıcı onayı olmadan training export'a dahil edilmemeli."
+      }
+    }
+  ]
+}

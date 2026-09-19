@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Tensor Shape Review",
+      "trigger": "PostFileSave",
+      "description": "Model veya eğitim kodunda değişiklik yapıldığında shape uyumluluğunu ve tensor operasyonlarını kontrol et",
+      "matcher": "src/(model|training|attention|transformer)/.*\\.py$",
+      "action": {
+        "type": "agent",
+        "prompt": "Bu dosyada tensor operasyonları var mı? Varsa:\n1. Her tensor operasyonunda shape bilgisinin yorumda açıkça belirtildiğinden emin ol\n2. Matrix multiplication operasyonlarında shape uyumluluğunu kontrol et\n3. Reshape, transpose gibi operasyonların doğru boyutlarda olduğunu doğrula\n4. Shape uyuşmazlığı riski varsa uyar\n\nÖrnek beklenen format:\n```python\n# q shape: [batch, heads, seq_len, d_k]\n# k shape: [batch, heads, seq_len, d_k]\nscores = q @ k.transpose(-2, -1)  # [batch, heads, seq_len, seq_len]\n```"
+      }
+    }
+  ]
+}

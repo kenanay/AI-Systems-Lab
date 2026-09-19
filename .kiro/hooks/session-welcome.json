@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Session Welcome",
+      "trigger": "SessionStart",
+      "description": "Session başladığında platform yapılandırmasının aktif olduğunu bildir",
+      "action": {
+        "type": "command",
+        "command": "echo \"✓ Yeni session başladı. AI Research Lab platformu için Kiro yapılandırması aktif.\" && echo \"📚 Steering dosyaları: project-principles, math-explanation, learning-content, data-management, code-standards\" && echo \"🔧 Hooks: code-quality, tensor-shape-review, data-security, documentation, learning-content, dataset-versioning\""
+      }
+    }
+  ]
+}

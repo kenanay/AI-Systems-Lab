@@ -1,0 +1,80 @@
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+
+# Deep Learning
+torch>=2.1.0
+transformers>=4.36.0
+tokenizers>=0.15.0
+datasets>=2.16.0
+accelerate>=0.25.0
+peft>=0.7.0
+trl>=0.7.0
+
+# Data Processing
+pandas>=2.1.4
+numpy>=1.26.0
+pyarrow>=14.0.0
+duckdb>=0.9.0
+pillow>=10.1.0
+
+# Document Processing
+pypdf>=3.17.0
+python-docx>=1.1.0
+openpyxl>=3.1.2
+python-pptx>=0.6.23
+
+# Vector Database
+faiss-cpu>=1.7.4  # veya faiss-gpu
+# qdrant-client>=1.7.0  # Opsiyonel
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+tqdm>=4.66.0
+rich>=13.7.0
+chardet>=5.2.0
+
+# Logging & Monitoring
+loguru>=0.7.2
+
+# Testing
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+pytest-cov>=4.1.0
+
+# Code Quality
+pylint>=3.0.3
+mypy>=1.7.1
+black>=23.12.1
+isort>=5.13.2
+
+# Security
+cryptography>=41.0.7
+
+# API Documentation
+python-jose[cryptography]>=3.3.0
+
+# Database
+sqlalchemy>=2.0.23
+alembic>=1.13.0
+
+# Job Queue (Opsiyonel - ileri aşama)
+# celery>=5.3.4
+# redis>=5.0.1
+
+# OCR (Opsiyonel)
+# pytesseract>=0.3.10
+
+# Audio Processing (Opsiyonel - ileri aşama)
+# librosa>=0.10.1
+# soundfile>=0.12.1
+
+# Video Processing (Opsiyonel - ileri aşama)
+# opencv-python>=4.8.1
+
+# Distributed Training (Opsiyonel - ileri aşama)
+# deepspeed>=0.12.0

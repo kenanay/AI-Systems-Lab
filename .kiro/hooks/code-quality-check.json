@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Code Quality Check",
+      "trigger": "PostFileSave",
+      "description": "Python dosyaları kaydedildiğinde temel kod kalitesi kontrolü yapar",
+      "matcher": "\\.py$",
+      "action": {
+        "type": "command",
+        "command": "python -m pylint --errors-only \"$FILE_PATH\" 2>&1 || true"
+      }
+    }
+  ]
+}

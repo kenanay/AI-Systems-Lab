@@ -1,0 +1,859 @@
+Bu hedef doğrultusunda ben planı v1.2 ile mimari olarak kapatırdım. Sonrasında plana yeni ana katmanlar eklemek yerine mevcut katmanların içeriğini geliştirmek daha doğru olur.
+
+1. “Local-first” kalsın ama “local-only” olmasın
+
+En önemli değişiklik bu.
+
+Başlangıç:
+
+Local CPU
+   ↓
+Local GPU
+
+olabilir.
+
+Ama uygulamanın çekirdeği şunu varsaymamalı:
+
+AI = benim bilgisayarım
+
+Bunun yerine:
+
+                    EXECUTION TARGET
+                           │
+          ┌────────────────┼─────────────────┐
+          ↓                ↓                 ↓
+      Local CPU        Local GPU         Remote GPU
+                                             │
+                            ┌────────────────┼───────────────┐
+                            ↓                ↓               ↓
+                        SSH Server       Cloud VM        Cluster
+                                                          │
+                                              ┌───────────┼──────────┐
+                                              ↓           ↓          ↓
+                                            Slurm     Kubernetes   Multi-GPU
+
+olmalı.
+
+Dolayısıyla uygulamada bir Compute / Execution Target abstraction bulunmalı.
+
+Aynı eğitim kodu:
+
+Run on:
+
+○ CPU
+○ Local CUDA GPU
+○ Remote Machine
+○ Multi-GPU
+○ Cluster
+
+seçeneklerine zamanla bağlanabilmeli.
+
+Bu sayede yerelde öğrendiğin işlem ile veri merkezinde yapılan işlemin aslında aynı kavramsal zincirin farklı ölçekleri olduğunu görebilirsin.
+
+2. Transformer tek merkez olsun ama tek mimari olmasın
+
+İlk gerçek modelimizi Transformer ile yapmak doğru.
+
+Ama hedef “AI modellerini anlamak” ise uygulamanın ilerleyen bölümlerinde bir Architecture Atlas olmalı.
+
+Aile	Öğrenilecek temel fikir
+Linear / Logistic Regression	En temel öğrenme ve optimizasyon
+MLP	Neural network temeli
+CNN	Görüntü ve spatial özellikler
+RNN / LSTM / GRU	Sıralı veri ve recurrence
+Transformer	Attention tabanlı modeller
+ViT	Görüntü + Transformer
+Autoencoder	Temsil öğrenme
+VAE	Olasılıksal latent representation
+GAN	Adversarial learning
+Diffusion	Modern image generation
+GNN	Graph verileri
+MoE	Mixture of Experts
+State Space Models	Uzun sequence alternatifleri
+Multimodal models	Text + Image + Audio + Video
+
+Ancak bunları ana öğrenme yoluna aynı anda koymamalıyız.
+
+Ana yol:
+
+MLP
+ ↓
+Attention
+ ↓
+Transformer
+ ↓
+GPT
+
+olsun.
+
+Diğerleri:
+
+Architecture Atlas
+
+altında isteğe bağlı dallar halinde açılır.
+
+Bu karmaşıklığı ciddi biçimde azaltır.
+
+3. Training kısmını biraz genişletmek gerekiyor
+
+Şu anda:
+
+Pretraining
+Fine-Tuning
+SFT
+LoRA
+QLoRA
+
+çok iyi.
+
+Ama modern AI geliştirme döngüsünü anlamak için daha sonra şunları da görmeliyiz:
+
+Pretraining
+     ↓
+Continued Pretraining
+     ↓
+Instruction Tuning / SFT
+     ↓
+Preference Data
+     ↓
+DPO / Preference Optimization
+     ↓
+gerekirse RL tabanlı yöntemler
+     ↓
+Evaluation
+
+Ayrıca:
+
+Knowledge Distillation
+Model Pruning
+Quantization
+Continual Learning
+
+ayrı ileri konular olabilir.
+
+Böylece:
+
+“Bir base model nasıl assistant modele dönüşüyor?”
+
+sorusunun tamamını öğrenmiş oluruz.
+
+4. Inference konusu mevcut plandan çok daha büyük olmalı
+
+Model eğitmek yapay zekânın yalnızca yarısıdır.
+
+Diğer yarısı:
+
+Modeli verimli şekilde çalıştırmak.
+
+Yeni bir ana bölüm öneriyorum:
+
+Inference & Serving Lab
+
+Burada:
+
+Prompt
+ ↓
+Tokenizer
+ ↓
+Prefill
+ ↓
+KV Cache
+ ↓
+Decode
+ ↓
+Sampling
+ ↓
+Token Streaming
+
+adım adım gösterilmeli.
+
+Sonra:
+
+Batching
+Continuous Batching
+KV Cache
+Paged Attention
+Quantization
+Speculative Decoding
+Caching
+
+öğrenilmeli.
+
+Ve ölçülmeli:
+
+TTFT
+Time To First Token
+
+TPS
+Tokens Per Second
+
+Latency
+
+Throughput
+
+VRAM
+
+Concurrent Requests
+
+Bu çok önemli çünkü:
+
+7B modeli eğitmek
+
+ile
+
+7B modeli 100 kullanıcıya servis etmek
+
+iki farklı mühendislik problemidir.
+
+5. AI Serving katmanı eklenmeli
+
+Daha ileri aşamada:
+
+Model
+ ↓
+Inference Engine
+ ↓
+API Server
+ ↓
+Application
+
+incelenmeli.
+
+Örneğin:
+
+PyTorch
+Transformers
+llama.cpp
+vLLM
+TensorRT-LLM
+
+gibi farklı inference yaklaşımlarının ne yaptığı anlaşılabilir.
+
+Ardından:
+
+REST
+WebSocket
+Streaming
+Authentication
+Rate Limiting
+Load Balancing
+
+öğrenilir.
+
+Bu, AI modelinden gerçek AI uygulamasına geçişi gösterir.
+
+6. Systems Lab eklenmesini özellikle öneriyorum
+
+Bu proje için bence eksik kalan önemli konulardan biri bu.
+
+Çünkü bir noktadan sonra sorun matematik değil:
+
+RAM
+VRAM
+Disk
+CPU
+GPU
+Process
+Thread
+Network
+I/O
+
+oluyor.
+
+Bunun için küçük bir:
+
+Systems for AI Lab
+
+olmalı.
+
+Örneğin kullanıcıya şunu öğretmeli:
+
+Dataset disk üzerinde
+      ↓
+DataLoader
+      ↓
+RAM
+      ↓
+CPU preprocessing
+      ↓
+PCIe transfer
+      ↓
+GPU VRAM
+      ↓
+CUDA Kernel
+      ↓
+Tensor Core
+
+Bu zinciri anlayınca:
+
+GPU neden %30 kullanılıyor?
+
+VRAM neden doldu?
+
+batch_size neden düşürülüyor?
+
+DataLoader worker ne yapıyor?
+
+pin_memory nedir?
+
+mixed precision neden kullanılıyor?
+
+gibi konular anlam kazanmaya başlar.
+
+7. CUDA / GPU tarafını tamamen gizlemeyelim
+
+GPU programlama ayrı bir uzmanlık alanı olduğu için başlangıçta zorunlu olmamalı.
+
+Ama ileride:
+
+Tensor operation
+      ↓
+PyTorch
+      ↓
+CUDA
+      ↓
+Kernel
+      ↓
+GPU
+
+zincirini gösterebilmeliyiz.
+
+Daha ileri seviyede:
+
+CUDA kernel
+Triton kernel
+
+örnekleri bulunabilir.
+
+Ama bunlar:
+
+Advanced Systems
+
+etiketiyle açılmalıdır.
+
+8. Veri formatları için “Format Explorer” eklenmesi çok iyi olur
+
+Sen özellikle tüm veri formatlarını anlamak istiyorsun.
+
+Bunu ana menüyü yüzlerce formatla doldurarak yapmayalım.
+
+Bir:
+
+Data & Model Format Explorer
+
+ekleyelim.
+
+Örneğin:
+
+DATA
+├── TXT
+├── CSV
+├── JSON
+├── JSONL
+├── XML
+├── Parquet
+├── Arrow
+├── WebDataset
+└── binary shards
+
+DOCUMENT
+├── PDF
+├── DOCX
+└── HTML
+
+IMAGE
+├── PNG
+├── JPEG
+├── WebP
+└── TIFF
+
+AUDIO
+├── WAV
+├── FLAC
+└── MP3
+
+VIDEO
+├── MP4
+└── WebM
+
+MODEL
+├── PyTorch checkpoint
+├── safetensors
+├── ONNX
+├── GGUF
+└── diğer runtime formatları
+
+Bir formata tıkladığında:
+
+Bu nedir?
+
+Binary mi text mi?
+
+Nasıl saklanıyor?
+
+Avantajı ne?
+
+Dezavantajı ne?
+
+AI'da nerede kullanılıyor?
+
+Streaming yapılabilir mi?
+
+Compression var mı?
+
+Python ile nasıl okunur?
+
+Örnek dosya yapısı nedir?
+
+gösterilir.
+
+Bu çok öğretici olur.
+
+9. Simulation Lab fikrin gerçekten değerli
+
+Bunu kesinlikle eklerdim.
+
+Ama gerçek sistem yerine geçen oyuncak bir bölüm değil; anlamayı destekleyen simülasyon olarak.
+
+Örneğin:
+
+Model Memory Simulator
+
+Gir:
+
+Parameters: 7B
+Precision: BF16
+Optimizer: AdamW
+Batch size: 4
+Sequence: 4096
+
+Uygulama yaklaşık olarak:
+
+Weights
+Gradients
+Optimizer states
+Activations
+KV / temporary memory
+
+için VRAM ihtiyacını açıklasın.
+
+Training Scale Simulator
+Model       1B
+Tokens      20B
+GPUs        8
+
+seç.
+
+Uygulama kavramsal olarak:
+
+Data Parallel
+Tensor Parallel
+Pipeline Parallel
+
+seçeneklerinin etkisini gösterir.
+
+Ama bunun gerçek çalışma süresi tahminleri açıkça yaklaşık/simülasyon olarak işaretlenmelidir.
+
+Attention Simulator
+
+Sequence length:
+
+128 → 512 → 2048 → 8192
+
+arttırıldığında klasik Attention'ın hesaplama ve bellek maliyetinin nasıl büyüdüğünü gör.
+
+RAG Simulator
+chunk_size
+overlap
+top_k
+embedding
+
+değerlerini değiştir.
+
+Retrieval sonuçlarının değişimini gör.
+
+Quantization Simulator
+FP32
+BF16
+FP16
+INT8
+INT4
+
+seçildiğinde:
+
+Memory ↓
+Speed ?
+Accuracy ?
+
+ilişkisini öğren.
+
+Bu bölüm çok öğretici olabilir.
+
+10. Distributed AI ayrı bir büyük öğrenme yolu olmalı
+
+Burada:
+
+Single GPU
+ ↓
+Data Parallel
+ ↓
+DDP
+ ↓
+FSDP
+ ↓
+Tensor Parallel
+ ↓
+Pipeline Parallel
+ ↓
+Context Parallel
+ ↓
+Expert Parallel
+
+sırasını öneririm.
+
+Ve her birinde:
+
+Neden bu yönteme ihtiyaç duyuyoruz?
+
+önce anlatılmalı.
+
+Örneğin:
+
+Model tek GPU'ya sığıyor mu?
+
+EVET
+↓
+Tek GPU kullan.
+
+HAYIR
+↓
+Modeli parçalamamız gerekiyor.
+
+gibi karar ağacı çok öğretici olur.
+
+11. MLOps / AI Engineering yaşam döngüsü de eksik kalmamalı
+
+Model bir kere eğitilip bırakılmaz.
+
+Şu zincir de uygulamada gösterilmeli:
+
+Data Version
+     ↓
+Training Run
+     ↓
+Model Version
+     ↓
+Evaluation
+     ↓
+Deployment
+     ↓
+Monitoring
+     ↓
+Feedback
+     ↓
+New Dataset
+     ↓
+Retraining
+
+Burada:
+
+experiment tracking
+model registry
+dataset registry
+monitoring
+drift
+rollback
+A/B test
+canary deployment
+
+ileri modüller olabilir.
+
+Bu, “AI araştırması” ile “AI üretim sistemi” arasındaki farkı öğretir.
+
+12. AI Application Layer da olmalı
+
+Çünkü en sonunda modelden uygulamaya geçeceğiz.
+
+Daha ileri aşamada:
+
+LLM
+ ↓
+Structured Output
+ ↓
+Tool Calling
+ ↓
+External Tools
+ ↓
+Workflow
+
+öğrenilebilir.
+
+Sonra:
+
+RAG
+Agents
+Memory
+Tools
+Workflow orchestration
+
+gibi konular eklenebilir.
+
+Ancak bunu ana Transformer yoluna karıştırmamak gerekir.
+
+13. Güvenlik katmanı genişletilmeli
+
+Mevcut PII/lisans yaklaşımı çok iyi.
+
+Buna ileride:
+
+Prompt Injection
+Data Poisoning
+Training Data Leakage
+Model Extraction
+Unsafe Tool Calls
+Secret Leakage
+RAG Injection
+
+gibi AI güvenliği konuları eklenmeli.
+
+Bunun da ayrı:
+
+AI Security Lab
+
+olması daha temiz olur.
+
+14. En önemli UX kararı: Progressive Disclosure
+
+Senin:
+
+“Çok fazla uygulamayı doldurarak karmaşıklaşmamalı.”
+
+tespitin kesinlikle doğru.
+
+Çözüm özellik azaltmak değil, görünür karmaşıklığı azaltmak.
+
+Ben uygulamayı üç ana görünümde toplardım:
+
+┌──────────────────────────────────┐
+│             AI LAB               │
+├──────────────────────────────────┤
+│                                  │
+│  1. GUIDED JOURNEY               │
+│     Öğren ve adım adım uygula    │
+│                                  │
+│  2. LAB / SIMULATOR              │
+│     Kavramları deneyle           │
+│                                  │
+│  3. WORKSPACE                    │
+│     Gerçek projelerini çalıştır  │
+│                                  │
+└──────────────────────────────────┘
+Guided Journey
+
+Başlangıç için:
+
+Veri
+ ↓
+Tokenizer
+ ↓
+Tensor
+ ↓
+Neural Network
+ ↓
+Attention
+ ↓
+Transformer
+ ↓
+GPT
+ ↓
+Training
+
+Kullanıcı kaybolmaz.
+
+Lab / Simulator
+
+İstediğin konuyu bağımsız deneylersin:
+
+Attention simulator
+Tokenizer simulator
+GPU memory simulator
+RAG simulator
+Distributed training simulator
+Workspace
+
+Gerçek proje:
+
+Dataset
+Model
+Training Run
+Checkpoint
+Evaluation
+Deployment
+
+Bu yapı bence projenin UX sorununu büyük ölçüde çözer.
+
+15. Bir “AI Journey Map” kesinlikle olmalı
+
+Uygulama açıldığında tüm yolculuk görülebilmeli:
+
+FOUNDATIONS
+    ↓
+DATA
+    ↓
+TOKENIZATION
+    ↓
+TENSORS
+    ↓
+NEURAL NETWORKS
+    ↓
+ATTENTION
+    ↓
+TRANSFORMERS
+    ↓
+LANGUAGE MODELS
+    ↓
+PRETRAINING
+    ↓
+POST-TRAINING
+    ↓
+EVALUATION
+    ↓
+INFERENCE
+    ↓
+SERVING
+    ↓
+RAG / TOOLS / AGENTS
+    ↓
+MULTIMODAL
+    ↓
+DISTRIBUTED AI
+    ↓
+PRODUCTION / MLOPS
+
+Her kutuda:
+
+○ Öğrenilmedi
+◐ Başlandı
+● Tamamlandı
+
+görülebilir.
+
+Ve üzerine geldiğinde:
+
+Bu konu neden gerekli?
+Ön bilgileri neler?
+Tahmini zorluk nedir?
+Bir sonraki konu nedir?
+
+gösterilir.
+
+16. Matematik ve yazılım “yan ders” değil, bağlama gömülü olmalı
+
+Bu konuda önceki kararımızı daha da güçlendiririm.
+
+Örneğin Attention sırasında:
+
+QKᵀ
+
+gördüğünde:
+
+Matrix multiplication öğren.
+
+Backprop sırasında:
+
+∂L/∂W
+
+gördüğünde:
+
+Partial derivative ve chain rule öğren.
+
+Distributed training sırasında:
+
+all-reduce
+
+gördüğünde:
+
+Network communication ve synchronization öğren.
+
+Yani:
+
+AI konusu
+  ↓
+gereken matematik
+  ↓
+gereken bilgisayar bilimi
+  ↓
+gerçek kod
+
+aynı bağlam içinde bulunmalı.
+
+Bu yaklaşım, ayrı ayrı yüzlerce teorik ders almaktan daha etkili olabilir.
+
+Son kararım
+
+Mevcut v1.1 planı çok güçlü bir temel, fakat senin son tanımladığın nihai hedef için henüz tamamen kapanmış değil.
+
+Ben artık ana mimariye şu eklemeleri yapıp v1.2'yi temel mimari açısından “tamamlanmış plan” olarak kabul ederdim:
+
+Local-first / execution-target-independent mimari
+Architecture Atlas
+Post-training yöntemleri
+Inference & Serving Lab
+Systems for AI Lab
+Data & Model Format Explorer
+Simulation Lab
+Distributed AI Lab
+Production / MLOps
+AI Application & Agent Layer
+AI Security Lab
+Guided Journey + Lab/Simulator + Workspace UX modeli
+
+Bundan sonra “yeni bir şey gördükçe ana plana bir modül daha ekleme” yoluna gitmemeliyiz. Aksi halde proje sonsuz büyür.
+
+Bunun yerine mimariyi artık şu şekilde dondurmak daha doğru:
+
+                 AI SYSTEMS LEARNING PLATFORM
+
+                         FOUNDATIONS
+                              │
+                              ↓
+                            DATA
+                              │
+                              ↓
+                     MODEL DEVELOPMENT
+                              │
+                              ↓
+                          TRAINING
+                              │
+                              ↓
+                        POST-TRAINING
+                              │
+                              ↓
+                         EVALUATION
+                              │
+                              ↓
+                         INFERENCE
+                              │
+                              ↓
+                          SERVING
+                              │
+                              ↓
+                    AI APPLICATIONS
+                              │
+                              ↓
+                   DISTRIBUTED SYSTEMS
+                              │
+                              ↓
+                         PRODUCTION
+
+               ┌──────────────┴──────────────┐
+               ↓                             ↓
+          SIMULATORS                    REAL PROJECTS
+
+Bu noktadan sonra uygulamanın amacı gerçekten şu hale gelir:
+
+Bir AI sisteminde gördüğün hiçbir kavramın “kara kutu” olarak kalmaması.
+
+Bir dataset formatından softmax formülüne, gradient hesabından CUDA'ya, Transformer'dan distributed training'e, model dosyasından inference server'a ve RAG/agent uygulamasına kadar gerektiğinde aşağı doğru inip “bu nedir, neden var, matematiksel olarak ne oluyor, kodda nasıl uygulanıyor ve gerçek sistemde nerede kullanılıyor?” sorularının cevabını bulabileceğin bir laboratuvar.
+
+Bu tanımla proje artık sadece Local AI Research Lab değil, daha geniş anlamda AI Systems Research & Learning Lab niteliğine ulaşır. Local çalışma ise başlangıç ve deney ortamı olarak önemini korur.
