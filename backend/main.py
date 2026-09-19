@@ -12,7 +12,7 @@ from typing import Dict
 
 from backend.config import settings
 from backend.database import init_db
-from backend.routers import files, datasets
+from backend.routers import files, datasets, tokenizer
 
 # Logger yapılandırması
 logging.basicConfig(
@@ -43,6 +43,7 @@ if settings.enable_cors:
 # Routers
 app.include_router(files.router)
 app.include_router(datasets.router)
+app.include_router(tokenizer.router)
 
 
 @app.get("/")
