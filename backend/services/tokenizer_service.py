@@ -350,7 +350,7 @@ class TokenizerTrainingService:
                 "status": job.status,
                 "progress": job.progress,
                 "created_at": job.created_at,
-                "metadata": job.metadata or {}
+                "metadata": job.result_metadata or {}
             }
             for job in jobs
         ]

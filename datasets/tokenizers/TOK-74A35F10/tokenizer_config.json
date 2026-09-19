@@ -1,0 +1,12 @@
+{
+  "tokenizer_type": "BPE",
+  "version": "1.0.0",
+  "vocab_size": 200,
+  "special_tokens": [
+    "<PAD>",
+    "<UNK>",
+    "<BOS>",
+    "<EOS>"
+  ],
+  "min_frequency": 1
+}

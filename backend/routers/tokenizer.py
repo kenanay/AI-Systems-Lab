@@ -373,11 +373,15 @@ async def encode_text(
             num_tokens=len(token_ids)
         )
         
+    except HTTPException:
+        raise
     except FileNotFoundError:
         raise HTTPException(
             status_code=404,
             detail="Tokenizer dosyaları bulunamadı"
         )
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Encoding failed: {e}")
         raise HTTPException(status_code=500, detail="Encoding başarısız")
