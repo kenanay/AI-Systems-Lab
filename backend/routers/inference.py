@@ -17,9 +17,10 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 import logging
 import json
-import time
+import torch
 
 from src.server.inference_server import ModelManager
+from src.inference.streaming_generation import stream_generate
 
 logger = logging.getLogger(__name__)
 
@@ -133,23 +134,49 @@ def generate_stream(request: InferenceGenerateRequest) -> StreamingResponse:
 
     def event_generator() -> Generator[str, None, None]:
         try:
-            # Fallback stream: generate and stream tokens
-            full_text, tokens_count, time_ms = manager.generate(
-                prompt=request.prompt,
-                max_length=request.max_length,
+            # Real token-by-token streaming generation
+            # Encode prompt
+            if manager.tokenizer:
+                input_ids = torch.tensor([manager.tokenizer.encode(request.prompt)])
+            else:
+                # Fallback: character-level encoding
+                input_ids = torch.tensor([[ord(c) % 300 for c in request.prompt[:100]]])
+            
+            device = next(manager.model.parameters()).device
+            input_ids = input_ids.to(device)
+            
+            # Stream generate tokens
+            generated_tokens = 0
+            for token_id, full_sequence in stream_generate(
+                model=manager.model,
+                input_ids=input_ids,
+                max_new_tokens=request.max_length,
                 temperature=request.temperature,
-                top_k=request.top_k,
-                top_p=request.top_p
-            )
-            # Yield in chunks
-            words = full_text.split(" ")
-            for i, word in enumerate(words):
-                chunk = word + (" " if i < len(words) - 1 else "")
-                yield f"data: {json.dumps({'token': chunk, 'done': False})}\n\n"
-                time.sleep(0.04)
-
-            yield f"data: {json.dumps({'done': True, 'tokens_generated': tokens_count, 'time_ms': time_ms})}\n\n"
+                top_k=request.top_k if request.top_k and request.top_k > 0 else None,
+                top_p=request.top_p if request.top_p and request.top_p < 1.0 else None,
+                eos_token_id=None,  # Could use tokenizer.eos_token_id if available
+                pad_token_id=None
+            ):
+                generated_tokens += 1
+                
+                # Decode current token
+                if manager.tokenizer:
+                    try:
+                        # Decode just the new token
+                        token_text = manager.tokenizer.decode([token_id])
+                    except:
+                        token_text = f"[{token_id}]"
+                else:
+                    token_text = chr(token_id % 128) if token_id < 128 else f"[{token_id}]"
+                
+                # Yield token as SSE
+                yield f"data: {json.dumps({'token': token_text, 'done': False})}\n\n"
+            
+            # Send completion event
+            yield f"data: {json.dumps({'done': True, 'tokens_generated': generated_tokens})}\n\n"
+            
         except Exception as e:
+            logger.error(f"Streaming generation error: {e}", exc_info=True)
             yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

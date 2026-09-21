@@ -565,7 +565,78 @@ class ModelRegistry:
         self._save_index()
 
     
-    def _calculate_hash(self, file_path: Path) -> str:
+    def delete_model(
+        self,
+        model_name: str,
+        version: Optional[str] = None
+    ) -> bool:
+        """
+        Model'i registry'den siler.
+        
+        Args:
+            model_name: Model adı
+            version: Spesifik versiyon (None ise tüm versiyonlar)
+            
+        Returns:
+            bool: Silme başarılı mı
+            
+        Raises:
+            ValueError: Model bulunamadığında
+        """
+        logger.info(f"Deleting model: {model_name}, version: {version or 'all'}")
+        
+        if model_name not in self.index:
+            raise ValueError(f"Model bulunamadı: {model_name}")
+        
+        deleted_count = 0
+        
+        if version is None:
+            # Tüm versiyonları sil
+            versions_to_delete = list(self.index[model_name].keys())
+        else:
+            # Sadece belirli versiyonu sil
+            if version not in self.index[model_name]:
+                raise ValueError(f"Version bulunamadı: {model_name}@{version}")
+            versions_to_delete = [version]
+        
+        for ver in versions_to_delete:
+            metadata = self.index[model_name][ver]
+            
+            # 1. Checkpoint dosyasını sil
+            checkpoint_path = Path(metadata.get("checkpoint_path", ""))
+            if checkpoint_path.exists():
+                checkpoint_path.unlink()
+                logger.info(f"  Deleted checkpoint: {checkpoint_path}")
+            
+            # 2. Metadata dosyasını sil
+            model_dir = self.registry_dir / model_name / ver
+            metadata_file = model_dir / "metadata.json"
+            if metadata_file.exists():
+                metadata_file.unlink()
+                logger.info(f"  Deleted metadata: {metadata_file}")
+            
+            # 3. Boş dizinleri temizle
+            if model_dir.exists() and not any(model_dir.iterdir()):
+                model_dir.rmdir()
+                logger.info(f"  Removed empty dir: {model_dir}")
+            
+            # 4. Index'ten sil
+            del self.index[model_name][ver]
+            deleted_count += 1
+        
+        # Model'in hiç versiyonu kalmadıysa model'i de sil
+        if not self.index[model_name]:
+            del self.index[model_name]
+            model_base_dir = self.registry_dir / model_name
+            if model_base_dir.exists() and not any(model_base_dir.iterdir()):
+                model_base_dir.rmdir()
+                logger.info(f"  Removed model dir: {model_base_dir}")
+        
+        # 5. Index'i kaydet
+        self._save_index()
+        
+        logger.info(f"✅ Deleted {deleted_count} version(s) of {model_name}")
+        return True
         """Calculate file MD5 hash."""
         hash_md5 = hashlib.md5()
         with open(file_path, 'rb') as f:

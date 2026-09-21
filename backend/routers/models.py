@@ -113,8 +113,10 @@ def delete_model(
         if not models:
             raise HTTPException(status_code=404, detail="Model bulunamadı")
         
-        # Soft delete or remove metadata
-        # registry.delete_model(model_name, version)
+        # Delete model from registry
+        registry.delete_model(model_name, version=None)
         return {"status": "success", "message": f"{model_name} başarıyla kaldırıldı"}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
