@@ -17,7 +17,7 @@ Kullanım:
     >>> tokens = tokenizer.encode("Merhaba")
 """
 
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set, Union, Callable, Any
 from collections import Counter, defaultdict
 import re
 import json
@@ -110,7 +110,7 @@ class BPETokenizer:
     def train(
         self, 
         texts: List[str],
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> None:
         """
         BPE tokenizer'ı train et.
@@ -180,7 +180,7 @@ class BPETokenizer:
                 break
             
             # En sık pair
-            best_pair = max(pairs, key=pairs.get)
+            best_pair = max(pairs, key=lambda p: pairs[p])
             
             if pairs[best_pair] < self.min_frequency:
                 logger.info(f"Merge #{merge_idx}: Frequency threshold'a ulaşıldı ({pairs[best_pair]} < {self.min_frequency})")
@@ -451,7 +451,20 @@ class BPETokenizer:
         self.is_trained = True
         logger.info(f"Vocabulary loaded from {input_path}: vocab_size={len(self.vocab)}")
     
-    def get_vocab_stats(self) -> Dict[str, any]:
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> "BPETokenizer":
+        """
+        Vocabulary ve merge kurallarını dosyadan veya dizinden yükleyerek tokenizer nesnesi döndürür.
+        """
+        p = Path(path)
+        tokenizer = cls()
+        if p.is_file():
+            p = p.parent
+        tokenizer.load_vocab(p)
+        return tokenizer
+
+    
+    def get_vocab_stats(self) -> Dict[str, Any]:
         """
         Vocabulary istatistikleri.
         

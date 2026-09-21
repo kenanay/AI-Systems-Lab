@@ -4,9 +4,8 @@ Database Bağlantı Yönetimi
 SQLAlchemy engine ve session yapılandırması.
 """
 
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from typing import Generator
 import logging
 
@@ -17,9 +16,29 @@ logger = logging.getLogger(__name__)
 # SQLAlchemy engine oluştur
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {},
-    echo=False  # SQL query'leri loglamak için True yapılabilir
+    connect_args={
+        "check_same_thread": False,
+        # Enable WAL mode for better concurrency
+        "timeout": 30.0  # 30 second timeout for locks
+    } if "sqlite" in settings.database_url else {},
+    echo=False,  # SQL query'leri loglamak için True yapılabilir
+    pool_pre_ping=True  # Verify connections before using
 )
+
+# Enable WAL mode for SQLite
+if "sqlite" in settings.database_url:
+    from sqlalchemy import event
+    
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
+        """Set SQLite pragmas on connect."""
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA cache_size=-64000")  # 64MB cache
+        cursor.close()
+        logger.info("SQLite WAL mode enabled")
+
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -57,6 +76,7 @@ def init_db() -> None:
     Tüm tabloları oluşturur.
     """
     logger.info("Initializing database...")
+    import backend.models  # Ensure all models are registered with Base.metadata
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialized successfully")
 

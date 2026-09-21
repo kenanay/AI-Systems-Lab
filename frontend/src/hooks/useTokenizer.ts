@@ -44,8 +44,10 @@ export function useTokenizerJob(jobId: string | null) {
     queryKey: ['tokenizer-job', jobId],
     queryFn: () => getTokenizerJob(jobId!),
     enabled: !!jobId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Auto-refresh if job is running
+      // In TanStack Query v5, access data via query.state.data
+      const data = query.state.data;
       if (data?.status === 'RUNNING' || data?.status === 'PENDING') {
         return 2000; // 2 seconds
       }

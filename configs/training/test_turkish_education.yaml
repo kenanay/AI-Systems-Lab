@@ -1,0 +1,44 @@
+data:
+  dataset_path: datasets/compiled_datasets/turkish_education_v1.0.0/dataset.parquet
+  num_workers: 4
+  pin_memory: true
+  sequence_length: 512
+  shuffle: true
+  stride: null
+  tokenizer_id: TOK-D026F1DF
+metadata:
+  dataset_version: 1.0.0
+  description: Turkish education content training
+  tags:
+  - turkish
+  - education
+  - test
+model:
+  activation: gelu
+  architecture: transformer_decoder
+  context_length: 512
+  d_ff: 1024
+  d_model: 256
+  dropout: 0.1
+  n_heads: 8
+  n_layers: 6
+  tie_embeddings: true
+  use_bias: true
+  vocab_size: 942
+name: turkish_education_training
+training:
+  batch_size: 32
+  beta1: 0.9
+  beta2: 0.999
+  epsilon: 1.0e-08
+  eval_interval: 1000
+  gradient_clip: 1.0
+  learning_rate: 0.0003
+  max_grad_norm: 1.0
+  max_steps: 100000
+  min_lr: 1.0e-05
+  save_interval: 5000
+  scheduler: cosine
+  warmup_steps: 1000
+  weight_decay: 0.01
+version: 1.0.0

@@ -55,19 +55,73 @@ export default function HomePage() {
             </div>
           </Link>
 
-          {/* Tokenizer Lab (Future) */}
-          <div className="bg-gray-100 rounded-lg shadow-md p-6 border border-gray-300 opacity-60 cursor-not-allowed">
+          {/* Tokenizer Lab - NOW ACTIVE */}
+          <Link
+            href="/tokenizer"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200"
+          >
             <div className="text-4xl mb-4">🔤</div>
-            <h2 className="text-2xl font-semibold text-gray-700 mb-2">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
               Tokenizer Lab
             </h2>
-            <p className="text-gray-500">
-              BPE, WordPiece ve SentencePiece tokenizer'ları öğren.
+            <p className="text-gray-600">
+              BPE, WordPiece ve SentencePiece tokenizer'ları öğren ve eğit.
             </p>
-            <div className="mt-4 text-sm text-gray-400 font-medium">
-              Yakında →
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Başla →
             </div>
-          </div>
+          </Link>
+
+          {/* Dataset Compiler - NOW ACTIVE */}
+          <Link
+            href="/dataset-compiler"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200"
+          >
+            <div className="text-4xl mb-4">⚙️</div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              Dataset Compiler
+            </h2>
+            <p className="text-gray-600">
+              Canonical Parquet dataset'leri derle ve optimize et.
+            </p>
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Derle →
+            </div>
+          </Link>
+
+          {/* Training Lab - NOW ACTIVE */}
+          <Link
+            href="/training"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200"
+          >
+            <div className="text-4xl mb-4">🏋️</div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              Training Lab
+            </h2>
+            <p className="text-gray-600">
+              Kendi modelini eğit: Pretraining, SFT ve LoRA ile ince ayar.
+            </p>
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Eğitime Başla →
+            </div>
+          </Link>
+
+          {/* Model Playground - NOW ACTIVE */}
+          <Link
+            href="/playground"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200"
+          >
+            <div className="text-4xl mb-4">💬</div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              Model Playground
+            </h2>
+            <p className="text-gray-600">
+              Eğittiğin modellerle etkileşimli sohbet et ve metin üret.
+            </p>
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Test Et →
+            </div>
+          </Link>
 
           {/* Embedding Lab (Future) */}
           <div className="bg-gray-100 rounded-lg shadow-md p-6 border border-gray-300 opacity-60 cursor-not-allowed">
@@ -91,20 +145,6 @@ export default function HomePage() {
             </h2>
             <p className="text-gray-500">
               Self-Attention ve Multi-Head Attention mekanizmasını görselleştir.
-            </p>
-            <div className="mt-4 text-sm text-gray-400 font-medium">
-              Yakında →
-            </div>
-          </div>
-
-          {/* Training Lab (Future) */}
-          <div className="bg-gray-100 rounded-lg shadow-md p-6 border border-gray-300 opacity-60 cursor-not-allowed">
-            <div className="text-4xl mb-4">🏋️</div>
-            <h2 className="text-2xl font-semibold text-gray-700 mb-2">
-              Training Lab
-            </h2>
-            <p className="text-gray-500">
-              Kendi modelini eğit: Pretraining, SFT, LoRA, RLHF.
             </p>
             <div className="mt-4 text-sm text-gray-400 font-medium">
               Yakında →
@@ -139,6 +179,16 @@ export default function HomePage() {
               <span><strong>Gerçek sistemlerde ne kullanılır?</strong> Production patterns öğretilir.</span>
             </li>
           </ul>
+        </div>
+
+        {/* Developer Credit */}
+        <div className="mt-8 text-center">
+          <p className="text-gray-600 text-sm">
+            Düzenleyen ve Geliştiren: <strong className="text-gray-900">Kenan AY</strong>
+          </p>
+          <p className="text-gray-500 text-xs mt-1">
+            © 2026 Local AI Research Lab
+          </p>
         </div>
       </div>
     </div>

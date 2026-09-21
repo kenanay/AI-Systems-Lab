@@ -67,6 +67,8 @@ logs/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 db.sqlite3
@@ -76,7 +78,10 @@ datasets/raw/
 datasets/normalized/
 datasets/processed/
 datasets/temp/
+datasets/tokenizers/
+datasets/compiled_datasets/
 temp_uploads/
+data/
 data/raw/
 data/normalized/
 data/processed/
@@ -87,9 +92,18 @@ data/processed/
 *.pth
 *.ckpt
 *.safetensors
+models/
 models/checkpoints/
 models/cache/
+models/registry/
 checkpoints/
+
+# Training artifacts
+training_output/
+demo_output/
+sft_demo_output/
+integration_test_output/
+*.tsbuildinfo
 
 # Hugging Face cache
 .cache/

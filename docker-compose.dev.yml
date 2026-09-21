@@ -1,0 +1,45 @@
+version: '3.8'
+
+# Development override - docker-compose.yml ile birlikte kullanılır
+# Kullanım: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: base
+    command: python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - LOG_LEVEL=DEBUG
+    volumes:
+      # Source code hot reload için
+      - ./src:/app/src
+      - ./backend:/app/backend
+      - ./configs:/app/configs
+      - ./datasets:/app/datasets
+      - ./models:/app/models
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+      - "5678:5678"  # Python debugger port (opsiyonel)
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: deps
+    command: npm run dev
+    environment:
+      - NODE_ENV=development
+      - API_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      # Source code hot reload için
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"

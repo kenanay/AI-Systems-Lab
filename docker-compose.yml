@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Backend - FastAPI Application
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ai-lab-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=sqlite:///app/data/local_ai_lab.db
+    volumes:
+      # Persist data directories
+      - ./datasets:/app/datasets
+      - ./models:/app/models
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./data:/app/data
+      # Development: mount source code for hot reload (opsiyonel)
+      # - ./src:/app/src
+      # - ./backend:/app/backend
+    networks:
+      - ai-lab-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend - Next.js Application
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: ai-lab-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ai-lab-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  ai-lab-network:
+    driver: bridge
+    name: ai-lab-network
+
+volumes:
+  # Named volumes için (opsiyonel - şu an bind mount kullanıyoruz)
+  datasets-data:
+  models-data:
+  uploads-data:
+  logs-data:

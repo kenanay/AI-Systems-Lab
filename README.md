@@ -126,39 +126,110 @@ local-ai-research-lab/
 
 ### Gereksinimler
 
-- Python 3.10+
-- Node.js 18+
+**Docker ile (Önerilen):**
+- Docker 20.10+
+- Docker Compose 2.0+
+
+**Manuel kurulum için:**
+- Python 3.11+
+- Node.js 20+
 - (Opsiyonel) CUDA-capable GPU
 
-### Kurulum
+---
+
+### 🐳 Docker ile Başlatma (Önerilen)
+
+En hızlı başlangıç yolu - tek komut ile tüm sistem çalışır:
 
 ```bash
-# Repository'yi klonla
+# Production mode
+docker-compose up
+
+# Development mode (hot reload)
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# Arka planda çalıştır
+docker-compose up -d
+
+# Logları izle
+docker-compose logs -f
+
+# Durdur
+docker-compose down
+
+# Tüm verileri temizle (dikkat: veriler silinir!)
+docker-compose down -v
+```
+
+**Erişim:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+**Avantajlar:**
+- ✅ Tek komutla başlatma
+- ✅ Dependency yönetimi yok
+- ✅ Tutarlı environment
+- ✅ Kolay deployment
+
+---
+
+### 💻 Manuel Kurulum
+
+Daha fazla kontrol ve development için:
+
+#### 1. Repository'yi Klonla
+
+```bash
 git clone <repository-url>
 cd local-ai-research-lab
+```
 
+#### 2. Backend Kurulumu
+
+```bash
 # Python sanal ortamı oluştur
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Python bağımlılıklarını yükle
+# Dependencies yükle
 pip install -r requirements.txt
 
-# Frontend bağımlılıklarını yükle
-cd frontend
-npm install
-cd ..
+# Backend başlat
+python -m uvicorn backend.main:app --host localhost --port 8000 --reload
 ```
 
-### Geliştirme
+#### 3. Frontend Kurulumu (Ayrı Terminal)
 
 ```bash
-# Backend'i başlat (port 8000)
-uvicorn backend.main:app --reload
-
-# Frontend'i başlat (port 3000)
+# Frontend dizinine git
 cd frontend
+
+# Dependencies yükle
+npm install
+
+# Development server başlat
 npm run dev
+```
+
+**Erişim:**
+- Frontend: http://localhost:3000
+- Backend: http://localhost:8000
+
+---
+
+### 🔧 Environment Variables
+
+`.env` dosyası oluştur (opsiyonel):
+
+```bash
+# Backend
+DATABASE_URL=sqlite:///data/local_ai_lab.db
+LOG_LEVEL=INFO
+
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:8000
+API_URL=http://backend:8000  # Docker için
 ```
 
 ---
@@ -343,6 +414,15 @@ Bu proje açık bir araştırma ve öğrenme platformudur. Katkılarınızı bek
 
 ---
 
+## 👨‍💻 Geliştirici
+
+**Kenan AY**  
+*Düzenleyen ve Geliştiren*
+
+Bu proje Kenan AY tarafından düzenlenmiş ve geliştirilmiştir.
+
+---
+
 ## 📝 Lisans
 
 [Lisans bilgisi eklenecek]
@@ -350,6 +430,8 @@ Bu proje açık bir araştırma ve öğrenme platformudur. Katkılarınızı bek
 ---
 
 ## 📧 İletişim
+
+Proje Geliştiricisi: **Kenan AY**
 
 [İletişim bilgileri eklenecek]
 
@@ -368,27 +450,194 @@ Bu proje şu kaynaklardan ilham almıştır:
 
 ## ⚡ Hızlı Başlangıç Komutları
 
+### Docker ile (Önerilen)
+
+```bash
+# Tek komut - tüm sistem başlar
+docker-compose up
+
+# Arka planda çalıştır
+docker-compose up -d
+
+# Logları izle
+docker-compose logs -f backend
+docker-compose logs -f frontend
+
+# Durdur
+docker-compose down
+```
+
+### Manuel Kurulum
+
 ```bash
 # Proje kurulumu
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+cd frontend && npm install && cd ..
 
-# Backend başlat
-python -m backend.main
+# Backend başlat (terminal 1)
+python -m uvicorn backend.main:app --host localhost --port 8000 --reload
 
-# Frontend başlat (ayrı terminal)
+# Frontend başlat (terminal 2)
 cd frontend && npm run dev
 
 # Test çalıştır
-pytest tests/
+pytest tests/ -v
 
 # Lint kontrolü
-pylint src/
+pylint src/ backend/
 
 # Type check
-mypy src/
+mypy src/ backend/
+npm run type-check  # Frontend
+```
+
+### Kullanışlı Docker Komutları
+
+```bash
+# Image'ları yeniden build et
+docker-compose build
+
+# Sadece backend rebuild
+docker-compose build backend
+
+# Shell aç (debug için)
+docker-compose exec backend bash
+docker-compose exec frontend sh
+
+# Veritabanını sıfırla
+docker-compose down -v
+docker-compose up -d
+
+# Resource kullanımını izle
+docker stats
 ```
 
 ---
 
 **Not:** Bu proje aktif geliştirme aşamasındadır. Özellikler ve API'lar değişebilir.
+
+---
+
+## 🔧 Troubleshooting
+
+### Docker İle İlgili Sorunlar
+
+**Problem: Port zaten kullanımda**
+```bash
+# Çalışan process'i bul
+lsof -i :8000  # Backend
+lsof -i :3000  # Frontend
+
+# Process'i durdur
+kill -9 <PID>
+
+# Veya Docker Compose ile temiz başlangıç
+docker-compose down
+docker-compose up
+```
+
+**Problem: Image build hatası**
+```bash
+# Cache'siz rebuild
+docker-compose build --no-cache
+
+# Tek servis rebuild
+docker-compose build --no-cache backend
+```
+
+**Problem: Volume izin hatası**
+```bash
+# Volume'ları temizle
+docker-compose down -v
+
+# Dizin izinlerini kontrol et
+sudo chown -R $USER:$USER datasets/ models/ uploads/
+```
+
+**Problem: Container başlamıyor**
+```bash
+# Logları kontrol et
+docker-compose logs backend
+docker-compose logs frontend
+
+# Container'a bağlan (debug)
+docker-compose exec backend bash
+```
+
+### Manuel Kurulum Sorunları
+
+**Problem: Python package yüklenemiyor**
+```bash
+# pip güncelle
+pip install --upgrade pip
+
+# Sistem dependencies (Ubuntu/Debian)
+sudo apt-get install python3-dev build-essential
+
+# macOS
+brew install python@3.11
+```
+
+**Problem: Node.js build hatası**
+```bash
+# Node modules temizle
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
+
+# Node version kontrol et
+node --version  # 20.x olmalı
+```
+
+**Problem: Database locked hatası**
+```bash
+# SQLite WAL mode otomatik aktif
+# Eğer hala sorun varsa:
+rm data/local_ai_lab.db*
+# Uygulama yeniden başlatıldığında DB oluşturulur
+```
+
+**Problem: CUDA/GPU tanınmıyor**
+```bash
+# PyTorch CUDA version kontrol et
+python -c "import torch; print(torch.cuda.is_available())"
+
+# CPU-only kullan (requirements.txt'te torch değiştir)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+### Frontend Sorunları
+
+**Problem: API bağlantı hatası**
+```bash
+# Backend'in çalıştığından emin ol
+curl http://localhost:8000/health
+
+# CORS hatası varsa backend/main.py'de CORS ayarları kontrol et
+# Environment variable'ı kontrol et
+echo $NEXT_PUBLIC_API_URL
+```
+
+**Problem: Build çok yavaş**
+```bash
+# ESLint cache temizle
+rm -rf frontend/.next frontend/node_modules/.cache
+
+# Type check'i atla (sadece development)
+npm run build -- --no-lint
+```
+
+### Test Sorunları
+
+**Problem: Test fail ediyor**
+```bash
+# Verbose mode ile detay
+pytest tests/ -vv
+
+# Specific test
+pytest tests/test_model.py::test_attention -v
+
+# Coverage report
+pytest tests/ --cov=src --cov-report=html
+```

@@ -8,11 +8,17 @@ import os
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, ConfigDict
 
 
 class Settings(BaseSettings):
     """Uygulama ayarları"""
+    
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False
+    )
     
     # Backend
     backend_host: str = Field(default="localhost", alias="BACKEND_HOST")
@@ -69,11 +75,6 @@ class Settings(BaseSettings):
         default=["http://localhost:3000", "http://localhost:8000"],
         alias="ALLOWED_ORIGINS"
     )
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
     
     def create_directories(self) -> None:
         """Gerekli dizinleri oluştur"""
