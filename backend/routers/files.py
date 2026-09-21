@@ -57,33 +57,49 @@ async def upload_file(
     """
     logger.info(f"File upload başladı: {file.filename}")
     
-    # 1. Dosya boyutu kontrolü
-    file_content = await file.read()
-    file_size = len(file_content)
-    
-    if file_size > settings.max_upload_size:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Dosya çok büyük. Maksimum: {format_file_size(settings.max_upload_size)}"
-        )
-    
-    logger.info(f"Dosya boyutu: {format_file_size(file_size)}")
-    
-    # 2. Extension kontrolü
+    # 1. Extension kontrolü (dosya okumadan önce)
     if not is_allowed_file(file.filename, settings.allowed_extensions):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"Desteklenmeyen dosya formatı. İzin verilen: {', '.join(settings.allowed_extensions)}"
         )
     
+    # 2. Chunk-based streaming ile dosya boyutu kontrolü ve ilk bytes okuma
+    # MIME detection için ilk chunk'ı oku
+    CHUNK_SIZE = 8192  # 8KB chunks
+    first_chunk = await file.read(CHUNK_SIZE)
+    file_size = len(first_chunk)
+    
+    # Dosya boyutunu hesapla (streaming)
+    chunks = [first_chunk]
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        file_size += len(chunk)
+        
+        # Dosya çok büyükse erken dur
+        if file_size > settings.max_upload_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Dosya çok büyük. Maksimum: {format_file_size(settings.max_upload_size)}"
+            )
+    
+    # Tüm chunk'ları birleştir (MIME detection ve hash için gerekli)
+    file_content = b"".join(chunks)
+    logger.info(f"Dosya boyutu: {format_file_size(file_size)}")
+    
     # 3. MIME type detection
     mime_type = detect_mime_type(file.filename, file_content)
     logger.info(f"MIME type: {mime_type}")
     
-    # 4. SHA-256 hash hesaplama
-    # Stream'i başa al
-    await file.seek(0)
-    sha256 = storage_manager.calculate_sha256_from_stream(file.file)
+    # 4. SHA-256 hash hesaplama (streaming-friendly)
+    import hashlib
+    sha256_hash = hashlib.sha256()
+    for chunk in chunks:
+        sha256_hash.update(chunk)
+    sha256 = sha256_hash.hexdigest()
     logger.info(f"SHA-256: {sha256}")
     
     # 5. Duplicate kontrolü
@@ -103,10 +119,11 @@ async def upload_file(
     # 6. File ID üret
     file_id = generate_file_id()
     
-    # 7. Fiziksel kaydetme
-    await file.seek(0)
+    # 7. Fiziksel kaydetme (chunks'tan BytesIO oluştur)
+    from io import BytesIO
+    file_stream = BytesIO(file_content)
     relative_path, calculated_sha256 = storage_manager.save_file(
-        file.file,
+        file_stream,
         file.filename,
         file_id
     )

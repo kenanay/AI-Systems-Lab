@@ -116,18 +116,24 @@ class TrainingService:
 
     def start_training(self, job_id: str) -> None:
         """Eğitimi arka plan iş parçacığında başlatır."""
-        stop_event = threading.Event()
-        thread = threading.Thread(
-            target=self._run_training_worker,
-            args=(job_id, stop_event),
-            daemon=True
-        )
-        ACTIVE_TRAINING_JOBS[job_id] = {
-            "thread": thread,
-            "stop_event": stop_event,
-            "started_at": datetime.now(timezone.utc)
-        }
-        thread.start()
+        with JOBS_LOCK:
+            # Check if already running
+            if job_id in ACTIVE_TRAINING_JOBS:
+                raise ValueError(f"Training job {job_id} is already running")
+            
+            stop_event = threading.Event()
+            thread = threading.Thread(
+                target=self._run_training_worker,
+                args=(job_id, stop_event),
+                daemon=True
+            )
+            ACTIVE_TRAINING_JOBS[job_id] = {
+                "thread": thread,
+                "stop_event": stop_event,
+                "started_at": datetime.now(timezone.utc)
+            }
+            thread.start()
+            
         logger.info(f"Training thread started for job {job_id}")
 
     def cancel_job(self, job_id: str) -> bool:
@@ -141,8 +147,8 @@ class TrainingService:
     @staticmethod
     def _run_training_worker(job_id: str, stop_event: threading.Event) -> None:
         """Arka plan eğitim fonksiyonu."""
-        db = SessionLocal()
-        try:
+        with SessionLocal() as db:
+            try:
             job = db.query(TrainingJob).filter(TrainingJob.job_id == job_id).first()
             if not job:
                 logger.error(f"Job {job_id} not found in worker")
@@ -352,7 +358,8 @@ class TrainingService:
                 job.error = str(e)
                 job.completed_at = datetime.now(timezone.utc)
                 db.commit()
-        finally:
-            if job_id in ACTIVE_TRAINING_JOBS:
-                del ACTIVE_TRAINING_JOBS[job_id]
-            db.close()
+            finally:
+                if job_id in ACTIVE_TRAINING_JOBS:
+                    with JOBS_LOCK:
+                        if job_id in ACTIVE_TRAINING_JOBS:
+                            del ACTIVE_TRAINING_JOBS[job_id]
