@@ -238,6 +238,10 @@ PARAMETER top_p 0.9
         # Serialize state_dict tensors
         state_dict = model.state_dict()
         for name, param in state_dict.items():
+            if not isinstance(param, torch.Tensor):
+                continue
+            if getattr(param, "is_quantized", False):
+                param = param.dequantize()
             param_np = param.detach().cpu().float().numpy()
             writer.add_tensor(name, param_np, tensor_type=tensor_type)
 

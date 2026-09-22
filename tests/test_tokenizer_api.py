@@ -24,6 +24,42 @@ def client() -> Generator[TestClient, None, None]:
         yield test_client
 
 
+@pytest.fixture(autouse=True)
+def setup_test_document():
+    """Ensure a FileRecord and DocumentRecord with file_id FILE-ED8B9094 exists for tokenizer training tests."""
+    from backend.database import SessionLocal, init_db
+    from backend.models import FileRecord, DocumentRecord
+    init_db()
+    db = SessionLocal()
+    try:
+        file = db.query(FileRecord).filter(FileRecord.file_id == "FILE-ED8B9094").first()
+        if not file:
+            file = FileRecord(
+                file_id="FILE-ED8B9094",
+                original_name="FILE-ED8B9094_test_sample.md",
+                relative_path="tests/fixtures/test_sample.md",
+                mime_type="text/markdown",
+                size_bytes=100,
+                sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            )
+            db.add(file)
+            db.commit()
+
+        doc = db.query(DocumentRecord).filter(DocumentRecord.file_id == "FILE-ED8B9094").first()
+        if not doc:
+            doc = DocumentRecord(
+                document_id="DOC-ED8B9094",
+                file_id="FILE-ED8B9094",
+                title="Sample Test Document",
+                text="Bu bir yapay zeka tokenizer eğitim metnidir. Türkçe doğal dil işleme sistemleri ve modelleri test edilmektedir."
+            )
+            db.add(doc)
+            db.commit()
+    finally:
+        db.close()
+    yield
+
+
 class TestTokenizerTrainingAPI:
     """Tokenizer training API testleri"""
     
