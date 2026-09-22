@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 
 from backend.config import settings
 from backend.database import init_db
-from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference
+from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation
 
 # Logger yapılandırması
 logging.basicConfig(
@@ -87,6 +87,7 @@ app.include_router(datasets_compiler.router)
 app.include_router(training.router)
 app.include_router(models.router)
 app.include_router(inference.router)
+app.include_router(evaluation.router)
 
 
 @app.get("/")

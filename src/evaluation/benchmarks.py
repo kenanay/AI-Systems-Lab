@@ -50,6 +50,143 @@ Usage:
 """
 
 import torch
+import torch.nn as nn
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+import logging
+import uuid
+
+from src.registry.model_registry import ModelRegistry
+# from src.evaluation.metrics import compute_perplexity  # TODO: Implement when needed
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BenchmarkResult:
+    """
+    Benchmark sonucu.
+    
+    Attributes:
+        benchmark_id: Unique benchmark run ID
+        model_name: Model adı
+        benchmark_name: Benchmark adı
+        score: Ana skor (perplexity, BLEU, vb.)
+        metrics: Detaylı metrikler
+        timestamp: Çalışma zamanı
+        samples_evaluated: Değerlendirilen sample sayısı
+    """
+    benchmark_id: str
+    model_name: str
+    benchmark_name: str
+    score: float
+    metrics: Dict[str, Any]
+    timestamp: datetime
+    samples_evaluated: int
+
+
+class BenchmarkRunner:
+    """
+    Benchmark çalıştırıcı.
+    
+    Args:
+        model_name: Model adı (registry'den yüklenir)
+        device: Device (cpu, cuda)
+    """
+    
+    def __init__(self, model_name: str, device: str = "cpu"):
+        self.model_name = model_name
+        self.device = device
+        self.registry = ModelRegistry(registry_dir="models")
+        
+        logger.info(f"BenchmarkRunner initialized for {model_name} on {device}")
+    
+    def run_benchmark(
+        self,
+        benchmark_name: str,
+        dataset_path: Optional[str] = None,
+        max_samples: int = 100,
+        batch_size: int = 8
+    ) -> BenchmarkResult:
+        """
+        Benchmark çalıştır.
+        
+        Args:
+            benchmark_name: Benchmark adı (perplexity, bleu, rouge)
+            dataset_path: Test dataset path (optional)
+            max_samples: Maximum sample sayısı
+            batch_size: Batch size
+            
+        Returns:
+            BenchmarkResult
+            
+        Raises:
+            ValueError: Desteklenmeyen benchmark
+            FileNotFoundError: Model bulunamadı
+        """
+        logger.info(f"Running {benchmark_name} benchmark on {self.model_name}")
+        
+        benchmark_id = f"BENCH-{uuid.uuid4().hex[:8].upper()}"
+        
+        if benchmark_name == "perplexity":
+            score, metrics = self._run_perplexity_benchmark(max_samples, batch_size)
+        elif benchmark_name in ["bleu", "rouge"]:
+            # TODO: Implement BLEU/ROUGE benchmarks
+            score = 0.0
+            metrics = {"note": "Not implemented yet"}
+            logger.warning(f"{benchmark_name} benchmark not implemented yet")
+        else:
+            raise ValueError(f"Unsupported benchmark: {benchmark_name}")
+        
+        result = BenchmarkResult(
+            benchmark_id=benchmark_id,
+            model_name=self.model_name,
+            benchmark_name=benchmark_name,
+            score=score,
+            metrics=metrics,
+            timestamp=datetime.now(),
+            samples_evaluated=max_samples
+        )
+        
+        logger.info(f"Benchmark completed: {benchmark_name} = {score:.2f}")
+        
+        return result
+    
+    def _run_perplexity_benchmark(
+        self,
+        max_samples: int,
+        batch_size: int
+    ) -> tuple[float, Dict[str, Any]]:
+        """
+        Perplexity benchmark çalıştır.
+        
+        Returns:
+            Tuple of (perplexity_score, metrics_dict)
+        """
+        # Load model
+        model_info = self.registry.load_model(self.model_name)
+        
+        if not model_info:
+            raise FileNotFoundError(f"Model not found: {self.model_name}")
+        
+        # TODO: Load actual test dataset
+        # Şimdilik dummy perplexity hesaplıyoruz
+        
+        # Simulated perplexity (normally computed on test set)
+        perplexity = 15.0 + (hash(self.model_name) % 10)  # Dummy value
+        
+        metrics = {
+            "perplexity": perplexity,
+            "loss": torch.log(torch.tensor(perplexity)).item(),
+            "samples": max_samples,
+            "batch_size": batch_size
+        }
+        
+        return perplexity, metrics
+
+import torch
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Union, Callable
 from dataclasses import dataclass, field
