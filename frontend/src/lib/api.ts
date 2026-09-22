@@ -687,6 +687,30 @@ export interface ModelVerifyResponse {
   verified_at: string;
 }
 
+export interface ModelExportRequest {
+  version?: string;
+  export_format: 'onnx' | 'torchscript' | 'gguf';
+  quantization?: 'none' | 'fp16' | 'int8' | 'int4';
+}
+
+export interface ModelExportRecord {
+  success: boolean;
+  model_name: string;
+  version: string;
+  export_format: 'onnx' | 'torchscript' | 'gguf';
+  quantization: string;
+  file_name: string;
+  file_path: string;
+  file_size_mb: number;
+  compression_ratio: number;
+  sha256: string;
+  quantization_metrics?: Record<string, any>;
+  export_duration_sec: number;
+  download_url: string;
+  deployment_snippet: string;
+  created_at: string;
+}
+
 export const modelsApi = {
   async list(): Promise<ModelItem[]> {
     const response = await apiClient.get<ModelItem[]>('/api/v1/models');
@@ -707,6 +731,24 @@ export const modelsApi = {
   async delete(modelName: string): Promise<any> {
     const response = await apiClient.delete(`/api/v1/models/${modelName}`);
     return response.data;
+  },
+  async exportModel(modelName: string, payload: ModelExportRequest): Promise<ModelExportRecord> {
+    const response = await apiClient.post<ModelExportRecord>(
+      `/api/v1/models/${modelName}/export`,
+      payload
+    );
+    return response.data;
+  },
+  async listExports(modelName: string, version?: string): Promise<ModelExportRecord[]> {
+    const response = await apiClient.get<ModelExportRecord[]>(
+      `/api/v1/models/${modelName}/exports`,
+      { params: version ? { version } : {} }
+    );
+    return response.data;
+  },
+  getDownloadUrl(modelName: string, fileName: string, version?: string): string {
+    const params = version ? `?version=${encodeURIComponent(version)}` : '';
+    return `${API_BASE_URL}/api/v1/models/${encodeURIComponent(modelName)}/download/${encodeURIComponent(fileName)}${params}`;
   },
 };
 

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ragApi, embeddingsApi, inferenceApi, evaluationApi, nnLabApi } from '@/lib/api';
+import { ragApi, embeddingsApi, inferenceApi, evaluationApi, nnLabApi, modelsApi } from '@/lib/api';
 
 // Mock axios instance methods
 jest.mock('axios', () => {
@@ -346,5 +346,65 @@ describe('Frontend API Client Layer', () => {
       expect(res).toEqual(mockResponse.data);
     });
   });
+
+  describe('modelsApi (Export & Quantization)', () => {
+    it('calls POST /api/v1/models/{name}/export with export payload', async () => {
+      const mockExportRecord = {
+        success: true,
+        model_name: 'test-gpt',
+        version: '1.0.0',
+        export_format: 'onnx',
+        quantization: 'int8',
+        file_name: 'test-gpt_1.0.0_int8.onnx',
+        file_path: 'models/test-gpt/1.0.0/exports/test-gpt_1.0.0_int8.onnx',
+        file_size_mb: 14.2,
+        compression_ratio: 3.7,
+        sha256: 'abcdef123456',
+        export_duration_sec: 1.2,
+        download_url: '/api/v1/models/test-gpt/download/test-gpt_1.0.0_int8.onnx',
+        deployment_snippet: 'import onnxruntime as ort',
+        created_at: '2026-09-22T21:00:00Z',
+      };
+      axiosInstance.post.mockResolvedValueOnce({ data: mockExportRecord });
+
+      const res = await modelsApi.exportModel('test-gpt', {
+        version: '1.0.0',
+        export_format: 'onnx',
+        quantization: 'int8',
+      });
+
+      expect(axiosInstance.post).toHaveBeenCalledWith('/api/v1/models/test-gpt/export', {
+        version: '1.0.0',
+        export_format: 'onnx',
+        quantization: 'int8',
+      });
+      expect(res).toEqual(mockExportRecord);
+    });
+
+    it('calls GET /api/v1/models/{name}/exports with version query param', async () => {
+      const mockExports = [
+        {
+          file_name: 'test-gpt_1.0.0.onnx',
+          export_format: 'onnx',
+          quantization: 'none',
+          file_size_mb: 52.4,
+        },
+      ];
+      axiosInstance.get.mockResolvedValueOnce({ data: mockExports });
+
+      const res = await modelsApi.listExports('test-gpt', '1.0.0');
+
+      expect(axiosInstance.get).toHaveBeenCalledWith('/api/v1/models/test-gpt/exports', {
+        params: { version: '1.0.0' },
+      });
+      expect(res).toEqual(mockExports);
+    });
+
+    it('generates correct download URL with getDownloadUrl', () => {
+      const url = modelsApi.getDownloadUrl('test-gpt', 'model.onnx', '1.0.0');
+      expect(url).toContain('/api/v1/models/test-gpt/download/model.onnx?version=1.0.0');
+    });
+  });
 });
+
 

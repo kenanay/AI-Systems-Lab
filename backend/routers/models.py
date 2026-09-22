@@ -10,12 +10,14 @@ Bu modül eğitilmiş modellerin yönetimi için REST API sağlar:
 """
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import logging
 from pathlib import Path
 
 from src.registry.model_registry import ModelRegistry, ModelMetadata
+from src.export.model_exporter import ModelExporter
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,12 @@ class ModelItemResponse(BaseModel):
     training_config: Dict[str, Any]
     tags: List[str]
     created_at: str
+
+
+class ExportModelRequest(BaseModel):
+    version: Optional[str] = None
+    export_format: str = "onnx"  # onnx, torchscript, gguf
+    quantization: str = "none"   # none, fp16, int8, int4
 
 
 @router.get("", response_model=List[Dict[str, Any]])
@@ -147,3 +155,85 @@ def delete_model(
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{model_name}/export", response_model=Dict[str, Any])
+def export_model(
+    model_name: str,
+    payload: ExportModelRequest
+) -> Dict[str, Any]:
+    """
+    Modeli ONNX, TorchScript veya GGUF formatına dönüştürür ve opsiyonel FP16/INT8/INT4 kuantizasyonu uygular.
+    """
+    exporter = ModelExporter(registry_dir="models")
+    try:
+        result = exporter.export_pipeline(
+            model_name=model_name,
+            version=payload.version,
+            export_format=payload.export_format,
+            quantization=payload.quantization
+        )
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
+    except Exception as e:
+        logger.error(f"Error exporting model {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Dışa aktarma hatası: {str(e)}")
+
+
+@router.get("/{model_name}/exports", response_model=List[Dict[str, Any]])
+def list_model_exports(
+    model_name: str,
+    version: Optional[str] = Query(None, description="Filtrelenecek model versiyonu")
+) -> List[Dict[str, Any]]:
+    """
+    Model için daha önce dışa aktarılmış dosyaların ve kuantizasyonların manifest listesini döner.
+    """
+    exporter = ModelExporter(registry_dir="models")
+    try:
+        return exporter.list_exports(model_name=model_name, version=version)
+    except Exception as e:
+        logger.error(f"Error listing exports for {model_name}: {e}")
+        return []
+
+
+@router.get("/{model_name}/download/{file_name}")
+def download_exported_model(
+    model_name: str,
+    file_name: str,
+    version: Optional[str] = Query(None, description="Opsiyonel model versiyonu")
+):
+    """
+    Dışa aktarılan ONNX, TorchScript veya GGUF dosyasını indirir.
+    Path traversal saldırılarına karşı güvenli dosya kontrolü içerir.
+    """
+    safe_filename = Path(file_name).name
+    registry = ModelRegistry()
+    base_dir = Path(registry.models_dir) / model_name
+
+    if not base_dir.exists():
+        raise HTTPException(status_code=404, detail="Model bulunamadı")
+
+    target_file = None
+    if version:
+        candidate = base_dir / version / "exports" / safe_filename
+        if candidate.is_file():
+            target_file = candidate
+    else:
+        # Search in any version exports dir
+        for candidate in base_dir.glob(f"*/exports/{safe_filename}"):
+            if candidate.is_file():
+                target_file = candidate
+                break
+
+    if not target_file or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"Dışa aktarılan dosya bulunamadı: {safe_filename}")
+
+    return FileResponse(
+        path=str(target_file),
+        filename=safe_filename,
+        media_type="application/octet-stream"
+    )
+

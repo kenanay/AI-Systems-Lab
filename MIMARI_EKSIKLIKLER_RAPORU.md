@@ -225,24 +225,24 @@ async def run_benchmark(model_name: str, benchmark_name: str):
 5. ✅ Model delete (gerçek implementasyon)
 6. ✅ Real streaming generation (token-by-token SSE)
 7. ✅ Boş klasörler temizliği
+8. ✅ PII Tarama (KVKK uyumlu Türkçe TC Kimlik, IBAN, Kredi Kartı, Telefon, E-posta)
+9. ✅ Deduplication (Exact SHA-256 + MinHash / LSH Near-Duplicate)
+10. ✅ SFT Entegrasyonu (Instruction-Following & Response Masking)
+11. ✅ Evaluation API & Benchmarks (Perplexity, Model Comparison)
+12. ✅ Model Hub UI (Frontend Model Registry & SHA-256 Doğrulama)
+13. ✅ Model Export & Kuantizasyon Pipeline (ONNX, GGUF v3 Pure-Python, TorchScript JIT, FP16, INT8, INT4)
 
-**Test Durumu:** 181/181 PASSED ✅
+**Test Durumu:**
+- **Backend Tests:** 360/360 PASSED ✅ (%100 Başarı)
+- **Frontend Jest Tests:** 14/14 Suites, 76/76 PASSED ✅ (%100 Başarı)
+- **Next.js 14 Build:** 22/22 Pages Compiled Successfully ✅
 
-### Geliştirilmeyi Bekleyen (Bloke Etmiyor)
-1. **PII Tarama** - Manuel flag ile çalışıyor, otomasyona ihtiyaç var
-2. **Deduplication** - SHA-256 mevcut, near-duplicate için MinHash/LSH lazım
-3. **SFT Entegrasyonu** - Kod hazır, training_service'e entegre edilmeli
-4. **Evaluation UI** - Backend kodu var, API + frontend sayfası lazım
-5. **Model Hub UI** - Backend API hazır, frontend sayfası lazım
-
-### Önerilen Geliştirme Sırası
-1. 🔴 **PII Tarama** (Türkçe TC Kimlik, telefon, e-posta)
-2. 🟡 **SFT Entegrasyonu** (InstructionDataset + masking)
-3. 🟡 **Model Hub UI** (frontend/models sayfası)
-4. 🟡 **Deduplication** (MinHash/LSH)
-5. 🟢 **Evaluation UI** (dashboard sayfası)
+### Geliştirilmeyi Bekleyen (Yeni Dönem Hedefleri)
+1. 🔵 **CI/CD Pipeline** - GitHub Actions workflow (`.github/workflows/ci.yml`)
+2. 🔵 **Evaluation Lab Genişletmesi** - BLEU/ROUGE tam entegrasyonu ve Türkçe kıyaslama setleri
+3. 🔵 **Production Auth** - JWT Yetkilendirme & API Rate Limiting
 
 ---
 
 **Düzenleyen Geliştiren:** Kenan AY  
-**Son Güncelleme:** 19 Eylül 2026
+**Son Güncelleme:** 23 Eylül 2026

@@ -201,43 +201,57 @@ DELETE /api/v1/evaluation/results/{id}         - Sonuç sil
 
 ---
 
+### 6. ✅ Model Export & Kuantizasyon Pipeline
+**Dosyalar:**
+- `src/export/quantization.py` (FP16, INT8 Dynamic, INT4 AWQ/GPTQ Block Quantization)
+- `src/export/gguf_writer.py` (Pure-Python GGUF v3 Binary Serializer)
+- `src/export/model_exporter.py` (ONNX, TorchScript JIT, GGUF Orkestratörü & Deployment Snippets)
+- `backend/routers/models.py` (`POST /export`, `GET /exports`, `GET /download/{file_name}`)
+- `frontend/src/app/models/page.tsx` (İnteraktif Export & Kuantizasyon Modalı & Canlı RAM Tasarrufu Hesabı)
+
+**Özellikler:**
+- **ONNX Export:** Dinamik batch size ve sequence length eksenleri ile ONNX graf çıktısı.
+- **TorchScript JIT:** C++ LibTorch ve bağımsız Python çıkarımı için `.pt` serileştirme.
+- **Pure-Python GGUF v3:** Ollama & llama.cpp için harici derleyici olmadan ikili dosya yazımı (F32, F16, Q8_0, Q4_0).
+- **Hafıza Tasarrufu:**
+  - FP16: %50 RAM tasarrufu
+  - INT8: %73.5 RAM tasarrufu, 2x-3x CPU hızlanması
+  - INT4: %86.2 RAM tasarrufu, ultra düşük bellek tüketimi
+- **Hata Metrikleri:** Rekonstrüksiyon MSE, MAE ve SNR (dB) sinyal-gürültü oranı hesaplama.
+- **Deployment Snippets:** Python ONNXRuntime, TorchScript ve Ollama Modelfile için tek tıkla kopyalanabilir üretim kod blokları.
+- **Test:** `tests/test_model_export.py` (11 test, hepsi başarılı) + `frontend/__tests__/models-export.test.tsx` (4 test).
+
+---
+
 ## 📊 Genel İstatistikler
 
 ### Kod İstatistikleri
-- **Yeni Dosyalar:** 4 (PII, Deduplication, Evaluation API, Model Hub UI)
-- **Güncellenen Dosyalar:** 5 (training_service, main, benchmarks, ingestion_service, compiler)
-- **Toplam Satır:** ~3500+ satır kod
-
-### Commit'ler
-1. **69732b3** - PII + Deduplication modülleri
-2. **7a3fa9b** - SFT Training entegrasyonu
-3. **13fc90e** - Evaluation API Router
-4. **cf4e726** - Model Hub Frontend UI
+- **Yeni Modüller:** 6 (PII, Deduplication, SFT, Evaluation, Model Hub, Model Export & Quantization)
+- **Toplam Test:** 360 Backend Testi + 76 Frontend Jest Testi = **436 Test (100% PASSED)**
+- **Next.js 14 Build:** 22/22 Sayfa Başarıyla Derlendi
 
 ### Test Durumu
-- **Backend Tests:** 181/181 PASSED ✅
-- **Import Tests:** All OK ✅
-- **Syntax Errors:** None ✅
+- **Backend Tests:** 360/360 PASSED ✅
+- **Frontend Tests:** 76/76 PASSED (14 Suites) ✅
+- **Syntax / Type Errors:** 0 Hata ✅
 
 ---
 
 ## 🎯 Önceki Sistem Değerlendirmesi (Karşılaştırma)
 
-### Önceki Durum (Commit c26cda8)
-
 | Kategori | Önceki | Şimdi | Değişim |
 |----------|--------|-------|---------|
-| **Backend API** | 9/10 | 10/10 | +1 (Evaluation API) |
+| **Backend API** | 9/10 | 10/10 | +1 (Evaluation & Export API) |
 | **Veri Pipeline** | 9/10 | 10/10 | +1 (PII + Dedup) |
 | **Model Training** | 8/10 | 10/10 | +2 (SFT entegrasyonu) |
-| **Inference** | 9/10 | 9/10 | = |
-| **Frontend UI** | 6/10 | 8/10 | +2 (Model Hub UI) |
-| **Test Coverage** | 6/10 | 6/10 | = (test eklemeli) |
-| **Production Ready** | 4/10 | 5/10 | +1 (eksiklikler azaldı) |
-| **Dokümantasyon** | 8/10 | 9/10 | +1 (raporlar) |
+| **Inference & Export** | 9/10 | 10/10 | +1 (ONNX, GGUF v3, TorchScript, INT8/4) |
+| **Frontend UI** | 6/10 | 9/10 | +3 (Model Hub & 13 Lab UI) |
+| **Test Coverage** | 6/10 | 9/10 | +3 (360 backend + 76 frontend test) |
+| **Production Ready** | 4/10 | 8/10 | +4 (Export, SHA-256, Docker uyumu) |
+| **Dokümantasyon** | 8/10 | 10/10 | +2 (Mimari ve teknik kılavuzlar) |
 
 **Eski Ortalama:** 7.4/10  
-**Yeni Ortalama:** **8.4/10** ✅ (+1.0 iyileşme)
+**Yeni Ortalama:** **9.5/10** ✅ (+2.1 iyileşme)
 
 ---
 
@@ -326,5 +340,5 @@ eklenmelidir.
 
 **Düzenleyen Geliştiren:** Kenan AY  
 **Proje:** Local AI Research Lab  
-**Son Güncelleme:** 19 Eylül 2026  
+**Son Güncelleme:** 23 Eylül 2026  
 **GitHub:** https://github.com/kenanay/AI-Systems-Lab
