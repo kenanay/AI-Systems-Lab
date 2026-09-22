@@ -132,3 +132,24 @@ def sample_md_file(temp_dir: Path) -> Path:
         encoding="utf-8"
     )
     return file_path
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Capture final exit status before unconfigure."""
+    session.config._final_exitstatus = exitstatus
+
+
+def pytest_unconfigure(config):
+    """
+    Safely exit process to prevent C++ thread pool destructors (PyTorch / ONNX / OpenMP)
+    from calling std::terminate() during Python interpreter teardown (Py_Finalize).
+    """
+    import sys
+    import os
+    sys.stdout.flush()
+    sys.stderr.flush()
+    exitstatus = getattr(config, "_final_exitstatus", 0)
+    if hasattr(exitstatus, "value"):
+        exitstatus = exitstatus.value
+    os._exit(int(exitstatus))
+

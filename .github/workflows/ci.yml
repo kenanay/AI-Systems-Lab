@@ -36,6 +36,11 @@ jobs:
           python -m compileall src backend tests
 
       - name: Run Pytest Regression Suite
+        env:
+          TOKENIZERS_PARALLELISM: 'false'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
         run: |
           pytest tests/ -m "not slow" -v --tb=short
 
