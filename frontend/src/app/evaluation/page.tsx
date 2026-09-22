@@ -40,7 +40,7 @@ import {
   BenchmarkSampleQuestion,
 } from '@/lib/api';
 
-// Preset sample pairs for Tab 1: BLEU & ROUGE N-gram Inspector
+// Preset sample pairs for Tab 1: BLEU, ROUGE, ChrF & F1 Inspector
 const TEXT_PRESETS = [
   {
     title: 'Tam Eşleşme (Exact Match)',
@@ -54,6 +54,20 @@ const TEXT_PRESETS = [
     desc: 'Kelime dizilimleri farklı, ortak anahtar kelimeler ve unigram/bigram örtüşmeleri içerir.',
     candidate: 'Yapay zeka modelleri metinleri yüksek başarıyla özetleyebilir ve analiz edebilir.',
     reference: 'Modern yapay zeka sistemleri metin özetleme ve anlama görevlerinde yüksek performans gösterir.',
+    maxN: 3,
+  },
+  {
+    title: 'Türkçe Metin Özetleme (Summarization)',
+    desc: 'Uzun haber veya bilimsel metni özetleme kalitesi; ROUGE-1/2/L ve ChrF++ morfolojik uyum metrikleri.',
+    candidate: 'TÜBİTAK ve üniversite araştırmacıları, yerli kuantum işlemci projesinde ilk çipi ürettiklerini duyurdu.',
+    reference: 'TÜBİTAK ve üniversite ortaklığında yürütülen yerli kuantum bilgisayar projesinde, ilk yerli kuantum işlemci çipinin başarıyla üretildiği açıklandı.',
+    maxN: 4,
+  },
+  {
+    title: 'Türkçe Soru-Cevap & Okuduğunu Anlama (QA)',
+    desc: 'Verilen bağlam doğrultusunda soruyu yanıtlama başarımı; Exact Match (EM) ve Token-F1 skorları.',
+    candidate: 'Mustafa Kemal Atatürk tarafından 29 Ekim 1923 tarihinde',
+    reference: 'Mustafa Kemal Atatürk önderliğinde 29 Ekim 1923 tarihinde',
     maxN: 3,
   },
   {
@@ -72,13 +86,14 @@ const TEXT_PRESETS = [
   },
 ];
 
-// Radar Chart 5-color palette for multi-model comparison
+// Radar Chart 6-color palette for multi-model comparison
 const RADAR_PALETTE = [
   { stroke: '#4f46e5', fill: 'rgba(79, 70, 229, 0.22)', dot: '#4338ca', badge: 'bg-indigo-100 text-indigo-800 border-indigo-200', text: 'text-indigo-600' },
   { stroke: '#059669', fill: 'rgba(5, 150, 105, 0.22)', dot: '#047857', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200', text: 'text-emerald-600' },
   { stroke: '#d97706', fill: 'rgba(217, 119, 6, 0.22)', dot: '#b45309', badge: 'bg-amber-100 text-amber-800 border-amber-200', text: 'text-amber-600' },
   { stroke: '#e11d48', fill: 'rgba(225, 29, 72, 0.22)', dot: '#be123c', badge: 'bg-rose-100 text-rose-800 border-rose-200', text: 'text-rose-600' },
   { stroke: '#8b5cf6', fill: 'rgba(139, 92, 246, 0.22)', dot: '#6d28d9', badge: 'bg-purple-100 text-purple-800 border-purple-200', text: 'text-purple-600' },
+  { stroke: '#0284c7', fill: 'rgba(2, 132, 199, 0.22)', dot: '#0369a1', badge: 'bg-sky-100 text-sky-800 border-sky-200', text: 'text-sky-600' },
 ];
 
 export default function EvaluationLabPage() {
@@ -322,7 +337,7 @@ export default function EvaluationLabPage() {
         if (prev.length <= 1) return prev;
         return prev.filter((m) => m !== modelName);
       } else {
-        if (prev.length >= 5) return prev;
+        if (prev.length >= 6) return prev;
         return [...prev, modelName];
       }
     });
@@ -622,12 +637,12 @@ export default function EvaluationLabPage() {
             {inspectData && (
               <div className="space-y-6">
                 {/* Metric Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   {/* Brevity Penalty */}
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                      <span>Brevity Penalty (BP)</span>
-                      <span className="text-slate-400">c / r = {(inspectData.candidate_len / Math.max(1, inspectData.reference_len)).toFixed(2)}</span>
+                      <span>Brevity Penalty</span>
+                      <span className="text-slate-400">c/r={(inspectData.candidate_len / Math.max(1, inspectData.reference_len)).toFixed(2)}</span>
                     </div>
                     <div className="text-2xl font-bold text-slate-900">
                       {inspectData.brevity_penalty.toFixed(3)}
@@ -646,8 +661,8 @@ export default function EvaluationLabPage() {
                     </div>
                     <p className="text-[11px] text-slate-400 mt-2">
                       {inspectData.brevity_penalty === 1.0
-                        ? 'Ceza yok (uzunluk yeterli)'
-                        : 'Kısa çıktı sebebiyle orantısal ceza uygulandı'}
+                        ? 'Ceza yok'
+                        : 'Kısa çıktı cezası uygulandı'}
                     </p>
                   </div>
 
@@ -655,13 +670,13 @@ export default function EvaluationLabPage() {
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                     <div className="flex items-center justify-between text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">
                       <span>Kümülatif BLEU</span>
-                      <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono">
-                        max {maxN}-gram
+                      <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono">
+                        {maxN}-gram
                       </span>
                     </div>
                     <div className="text-2xl font-bold text-indigo-950">
                       {(inspectData.bleu[`bleu-${maxN}`] ?? inspectData.bleu['bleu-1'] ?? 0).toFixed(1)}
-                      <span className="text-sm font-normal text-slate-500 ml-1">/ 100</span>
+                      <span className="text-sm font-normal text-slate-500 ml-1">/100</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
                       <div
@@ -674,27 +689,27 @@ export default function EvaluationLabPage() {
                         }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-2">Hassasiyet (Precision) bazlı örtüşme</p>
+                    <p className="text-[11px] text-slate-400 mt-2">Hassasiyet (Precision)</p>
                   </div>
 
                   {/* ROUGE-1 & ROUGE-2 */}
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                     <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-2">
-                      ROUGE-1 & ROUGE-2
+                      ROUGE-1 &amp; ROUGE-2
                     </div>
-                    <div className="flex items-baseline gap-3">
+                    <div className="flex items-baseline gap-2">
                       <div>
                         <span className="text-xl font-bold text-emerald-950">
                           {(inspectData.rouge['rouge-1'] ?? 0).toFixed(1)}
                         </span>
-                        <span className="text-[11px] text-slate-400 ml-1">R-1</span>
+                        <span className="text-[10px] text-slate-400 ml-0.5">R1</span>
                       </div>
                       <span className="text-slate-300">|</span>
                       <div>
                         <span className="text-xl font-bold text-emerald-950">
                           {(inspectData.rouge['rouge-2'] ?? 0).toFixed(1)}
                         </span>
-                        <span className="text-[11px] text-slate-400 ml-1">R-2</span>
+                        <span className="text-[10px] text-slate-400 ml-0.5">R2</span>
                       </div>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
@@ -703,7 +718,7 @@ export default function EvaluationLabPage() {
                         style={{ width: `${Math.min(100, inspectData.rouge['rouge-1'] ?? 0)}%` }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-2">Geri çağırma (Recall & F1) örtüşmesi</p>
+                    <p className="text-[11px] text-slate-400 mt-2">Geri çağırma (Recall &amp; F1)</p>
                   </div>
 
                   {/* ROUGE-L */}
@@ -713,7 +728,7 @@ export default function EvaluationLabPage() {
                     </div>
                     <div className="text-2xl font-bold text-purple-950">
                       {(inspectData.rouge['rouge-l'] ?? 0).toFixed(1)}
-                      <span className="text-sm font-normal text-slate-500 ml-1">/ 100</span>
+                      <span className="text-sm font-normal text-slate-500 ml-1">/100</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
                       <div
@@ -721,7 +736,51 @@ export default function EvaluationLabPage() {
                         style={{ width: `${Math.min(100, inspectData.rouge['rouge-l'] ?? 0)}%` }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-2">En uzun ortak alt dizi (LCS) F1 skoru</p>
+                    <p className="text-[11px] text-slate-400 mt-2">En uzun ortak alt dizi (LCS)</p>
+                  </div>
+
+                  {/* ChrF++ Score */}
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="flex items-center justify-between text-xs font-semibold text-teal-600 uppercase tracking-wider mb-2">
+                      <span>ChrF++ (Karakter)</span>
+                      <span className="text-[10px] bg-teal-50 text-teal-700 px-1 py-0.5 rounded font-mono">
+                        n=6,β=2
+                      </span>
+                    </div>
+                    <div className="text-2xl font-bold text-teal-950">
+                      {(inspectData.chrf ?? 0).toFixed(1)}
+                      <span className="text-sm font-normal text-slate-500 ml-1">/100</span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
+                      <div
+                        className="h-full bg-teal-500 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, inspectData.chrf ?? 0)}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2">Türkçe morfolojik karakter F-skoru</p>
+                  </div>
+
+                  {/* Exact Match & Token F1 */}
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="flex items-center justify-between text-xs font-semibold text-sky-600 uppercase tracking-wider mb-2">
+                      <span>Exact Match &amp; F1</span>
+                      <span className="text-[10px] bg-sky-50 text-sky-700 px-1 py-0.5 rounded font-mono">
+                        EM: {(inspectData.exact_match ?? 0).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="text-2xl font-bold text-sky-950">
+                      {(inspectData.token_f1?.f1 ?? 0).toFixed(1)}
+                      <span className="text-sm font-normal text-slate-500 ml-1">F1</span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
+                      <div
+                        className="h-full bg-sky-500 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, inspectData.token_f1?.f1 ?? 0)}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2">
+                      P: {(inspectData.token_f1?.precision ?? 0).toFixed(1)}% | R: {(inspectData.token_f1?.recall ?? 0).toFixed(1)}%
+                    </p>
                   </div>
                 </div>
 
@@ -913,7 +972,7 @@ export default function EvaluationLabPage() {
                     <label htmlFor="select-benchmark" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                       Benchmark Türü
                     </label>
-                    {(runBenchmarkName === 'gsm8k_cot' || runBenchmarkName === 'turkish_knowledge') && (
+                    {['gsm8k_cot', 'turkish_knowledge', 'turkish_summarization', 'turkish_qa'].includes(runBenchmarkName) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -945,6 +1004,8 @@ export default function EvaluationLabPage() {
                     <option value="perplexity">Perplexity (Belirsizlik / Şaşkınlık)</option>
                     <option value="bleu">BLEU Score (Çeviri / Üretim Kalitesi)</option>
                     <option value="rouge">ROUGE Score (Özetleme Kalitesi)</option>
+                    <option value="turkish_summarization">📰 Türkçe Metin Özetleme (ROUGE-L, ChrF)</option>
+                    <option value="turkish_qa">🔍 Türkçe Okuduğunu Anlama &amp; QA (EM, F1)</option>
                     <option value="gsm8k_cot">📐 Çok Adımlı Matematik (GSM8K CoT)</option>
                     <option value="turkish_knowledge">🇹🇷 Türkçe Bilgi &amp; Doğruluk Testi</option>
                     <option value="accuracy">Accuracy (Sınıflandırma Doğruluğu)</option>
@@ -1038,8 +1099,12 @@ export default function EvaluationLabPage() {
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                         {runBenchmarkName === 'gsm8k_cot'
                           ? 'GSM8K Chain-of-Thought Soru Havuzu'
-                          : 'Türkçe Olgusal Bilgi Soru Havuzu'}{' '}
-                        ({sampleQuestions.length} Soru)
+                          : runBenchmarkName === 'turkish_knowledge'
+                          ? 'Türkçe Olgusal Bilgi Soru Havuzu'
+                          : runBenchmarkName === 'turkish_summarization'
+                          ? 'Türkçe Metin Özetleme Örnek Havuzu'
+                          : 'Türkçe Okuduğunu Anlama & QA Havuzu'}{' '}
+                        ({sampleQuestions.length} Örnek)
                       </span>
                     </div>
                     <button
@@ -1068,7 +1133,22 @@ export default function EvaluationLabPage() {
                               {q.domain}
                             </span>
                           </div>
-                          <p className="font-semibold text-slate-800 leading-snug">{q.input}</p>
+                          {q.context && (
+                            <div className="p-2 bg-emerald-50/50 rounded-lg border border-emerald-100 text-[11px] text-slate-700 leading-relaxed">
+                              <span className="font-semibold text-emerald-800 block text-[10px] uppercase mb-0.5">
+                                Bağlam Metni:
+                              </span>
+                              {q.context}
+                            </div>
+                          )}
+                          {q.question ? (
+                            <p className="font-semibold text-slate-800 leading-snug">
+                              <span className="text-indigo-600 font-bold mr-1">Soru:</span>
+                              {q.question}
+                            </p>
+                          ) : (
+                            <p className="font-semibold text-slate-800 leading-snug">{q.input}</p>
+                          )}
                           <div className="bg-white p-2 rounded-lg border border-slate-100 font-mono text-[11px] text-slate-600 leading-relaxed whitespace-pre-wrap">
                             <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
                               Beklenen Çözüm &amp; Cevap:
@@ -1249,7 +1329,7 @@ export default function EvaluationLabPage() {
                   }`}
                 >
                   <Compass className="w-4 h-4 text-indigo-600" />
-                  5-Eksenli Model Radar Analizi (Spider Chart)
+                  6-Eksenli Model Radar Analizi (Spider Chart)
                 </button>
                 <button
                   id="subtab-head-to-head"
@@ -1267,12 +1347,12 @@ export default function EvaluationLabPage() {
 
               <div className="text-xs text-slate-500 px-3">
                 {arenaSubMode === 'radar'
-                  ? 'Çoklu model 5 temel boyutta (CoT, Bilgi, BLEU, ROUGE, PPL) eşzamanlı kıyaslanır.'
+                  ? 'Çoklu model 6 temel boyutta (CoT, Bilgi, QA, Özetleme, BLEU & ChrF, PPL) eşzamanlı kıyaslanır.'
                   : 'İki modeli seçilen tek bir benchmark metriği üzerinde birebir yarıştırın.'}
               </div>
             </div>
 
-            {/* SUB-MODE 1: 5-AXIS RADAR ANALYSIS */}
+            {/* SUB-MODE 1: 6-AXIS RADAR ANALYSIS */}
             {arenaSubMode === 'radar' && (
               <div className="space-y-6">
                 {/* Model Selector Card */}
@@ -1281,10 +1361,10 @@ export default function EvaluationLabPage() {
                     <div>
                       <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                         <Compass className="w-5 h-5 text-indigo-600" />
-                        Radar Analizi İçin Modelleri Seçin (2 - 5 Model)
+                        Radar Analizi İçin Modelleri Seçin (2 - 6 Model)
                       </h2>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Radar diyagramında karşılaştırılacak modelleri işaretleyin. Seçili: {radarSelectedModels.length} / 5
+                        Radar diyagramında karşılaştırılacak modelleri işaretleyin. Seçili: {radarSelectedModels.length} / 6
                       </p>
                     </div>
 
@@ -1354,9 +1434,9 @@ export default function EvaluationLabPage() {
                 {radarLoading && (
                   <div className="p-12 bg-white rounded-2xl border border-slate-200 text-center space-y-3">
                     <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto" />
-                    <h3 className="font-bold text-slate-800 text-sm">5 Boyutlu Model Başarımı Hesaplanıyor...</h3>
+                    <h3 className="font-bold text-slate-800 text-sm">6 Boyutlu Model Başarımı Hesaplanıyor...</h3>
                     <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      GSM8K Akıl Yürütme, Türkçe Bilgi, BLEU Akıcılığı, ROUGE Özetleme ve Perplexity metrikleri modeller üzerinde analiz ediliyor.
+                      GSM8K Akıl Yürütme, Türkçe Bilgi, QA Okuduğunu Anlama, Özetleme, BLEU &amp; ChrF Akıcılığı ve Perplexity metrikleri modeller üzerinde analiz ediliyor.
                     </p>
                   </div>
                 )}
@@ -1372,7 +1452,7 @@ export default function EvaluationLabPage() {
                         </div>
                         <div>
                           <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider block">
-                            5-Eksenli Radar Şampiyonu (Overall Winner)
+                            6-Eksenli Radar Şampiyonu (Overall Winner)
                           </span>
                           <h3 className="text-xl font-extrabold text-slate-900 font-mono">
                             {radarData.overall_winner}
@@ -1393,163 +1473,168 @@ export default function EvaluationLabPage() {
                         <div className="w-full flex items-center justify-between border-b border-slate-100 pb-3 mb-2">
                           <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                             <Activity className="w-4 h-4 text-indigo-600" />
-                            Model Spider / Radar Grafiği
+                            Model Spider / Radar Grafiği ({radarData.dimensions.length} Eksen)
                           </h3>
                           <span className="text-[11px] text-slate-400 font-medium">0 - 100 Normalize Ölçek</span>
                         </div>
 
                         {/* Interactive SVG Radar */}
                         <div className="relative w-full max-w-[480px] aspect-square flex items-center justify-center py-2">
-                          <svg
-                            viewBox="0 0 480 480"
-                            className="w-full h-full overflow-visible drop-shadow-sm"
-                          >
-                            <defs>
-                              {radarData.models.map((m, mIdx) => {
-                                const pal = RADAR_PALETTE[mIdx % RADAR_PALETTE.length];
-                                return (
-                                  <radialGradient
-                                    key={`rad-grad-${m.model_name}`}
-                                    id={`radar-glow-${mIdx}`}
-                                    cx="50%"
-                                    cy="50%"
-                                    r="50%"
-                                  >
-                                    <stop offset="0%" stopColor={pal.stroke} stopOpacity="0.4" />
-                                    <stop offset="100%" stopColor={pal.stroke} stopOpacity="0.05" />
-                                  </radialGradient>
-                                );
-                              })}
-                            </defs>
-
-                            {/* Concentric Pentagon Rings */}
-                            {[0.2, 0.4, 0.6, 0.8, 1.0].map((lvl, ringIdx) => {
-                              const ringPoints = Array.from({ length: 5 }, (_, i) => {
-                                const angle = -Math.PI / 2 + i * ((2 * Math.PI) / 5);
-                                const x = 240 + lvl * 155 * Math.cos(angle);
-                                const y = 240 + lvl * 155 * Math.sin(angle);
-                                return `${x.toFixed(1)},${y.toFixed(1)}`;
-                              }).join(' ');
-
-                              return (
-                                <g key={`ring-${ringIdx}`}>
-                                  <polygon
-                                    points={ringPoints}
-                                    fill={ringIdx % 2 === 0 ? 'rgba(241, 245, 249, 0.4)' : 'none'}
-                                    stroke="#cbd5e1"
-                                    strokeWidth="1"
-                                    strokeDasharray={lvl < 1.0 ? '3 3' : 'none'}
-                                  />
-                                  {/* Level percentage label at top spoke */}
-                                  <text
-                                    x="244"
-                                    y={240 - lvl * 155 + 11}
-                                    fill="#94a3b8"
-                                    fontSize="10"
-                                    fontFamily="monospace"
-                                    fontWeight="bold"
-                                  >
-                                    {(lvl * 100).toFixed(0)}%
-                                  </text>
-                                </g>
-                              );
-                            })}
-
-                            {/* Spoke Axes & Dimension Labels */}
-                            {radarData.dimensions.map((dimName, i) => {
-                              const angle = -Math.PI / 2 + i * ((2 * Math.PI) / 5);
-                              const xEnd = 240 + 155 * Math.cos(angle);
-                              const yEnd = 240 + 155 * Math.sin(angle);
-
-                              // Label coordinate
-                              const labelR = 192;
-                              const lx = 240 + labelR * Math.cos(angle);
-                              const ly = 240 + labelR * Math.sin(angle);
-
-                              let textAnchor = 'middle';
-                              if (Math.cos(angle) > 0.25) textAnchor = 'start';
-                              else if (Math.cos(angle) < -0.25) textAnchor = 'end';
-
-                              return (
-                                <g key={`axis-${i}`}>
-                                  {/* Spoke Line */}
-                                  <line
-                                    x1="240"
-                                    y1="240"
-                                    x2={xEnd.toFixed(1)}
-                                    y2={yEnd.toFixed(1)}
-                                    stroke="#94a3b8"
-                                    strokeWidth="1.2"
-                                  />
-                                  {/* Outer tick */}
-                                  <circle
-                                    cx={xEnd.toFixed(1)}
-                                    cy={yEnd.toFixed(1)}
-                                    r="2.5"
-                                    fill="#64748b"
-                                  />
-                                  {/* Label text */}
-                                  <text
-                                    x={lx.toFixed(1)}
-                                    y={ly.toFixed(1)}
-                                    textAnchor={textAnchor as 'start' | 'end' | 'middle'}
-                                    fill="#1e293b"
-                                    fontSize="11"
-                                    fontWeight="bold"
-                                    className="select-none"
-                                  >
-                                    {dimName}
-                                  </text>
-                                </g>
-                              );
-                            })}
-
-                            {/* Model Overlay Polygons */}
-                            {radarData.models.map((m, mIdx) => {
-                              if (visibleRadarModels[m.model_name] === false) return null;
-                              const pal = RADAR_PALETTE[mIdx % RADAR_PALETTE.length];
-
-                              const pts = m.dimensions.map((dim, i) => {
-                                const angle = -Math.PI / 2 + i * ((2 * Math.PI) / 5);
-                                const r = (Math.max(5, Math.min(100, dim.score)) / 100) * 155;
-                                const x = 240 + r * Math.cos(angle);
-                                const y = 240 + r * Math.sin(angle);
-                                return { x, y, score: dim.score, name: dim.dimension_name || dim.name || '' };
-                              });
-
-                              const pointsStr = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
-                              return (
-                                <g key={`model-poly-${m.model_name}`} className="transition-all duration-300">
-                                  {/* Filled Polygon */}
-                                  <polygon
-                                    points={pointsStr}
-                                    fill={pal.fill}
-                                    stroke={pal.stroke}
-                                    strokeWidth="2.5"
-                                    className="transition-all hover:opacity-90"
-                                  />
-
-                                  {/* Dimension Vertices */}
-                                  {pts.map((pt, pIdx) => (
-                                    <g key={`pt-${m.model_name}-${pIdx}`}>
-                                      <circle
-                                        cx={pt.x.toFixed(1)}
-                                        cy={pt.y.toFixed(1)}
-                                        r="4"
-                                        fill={pal.dot}
-                                        stroke="#ffffff"
-                                        strokeWidth="1.5"
-                                        className="transition hover:r-6 cursor-pointer"
+                          {(() => {
+                            const totalAxes = Math.max(3, radarData.dimensions.length);
+                            return (
+                              <svg
+                                viewBox="0 0 480 480"
+                                className="w-full h-full overflow-visible drop-shadow-sm"
+                              >
+                                <defs>
+                                  {radarData.models.map((m, mIdx) => {
+                                    const pal = RADAR_PALETTE[mIdx % RADAR_PALETTE.length];
+                                    return (
+                                      <radialGradient
+                                        key={`rad-grad-${m.model_name}`}
+                                        id={`radar-glow-${mIdx}`}
+                                        cx="50%"
+                                        cy="50%"
+                                        r="50%"
                                       >
-                                        <title>{`${m.model_name}\n${pt.name}: ${pt.score.toFixed(1)}`}</title>
-                                      </circle>
+                                        <stop offset="0%" stopColor={pal.stroke} stopOpacity="0.4" />
+                                        <stop offset="100%" stopColor={pal.stroke} stopOpacity="0.05" />
+                                      </radialGradient>
+                                    );
+                                  })}
+                                </defs>
+
+                                {/* Concentric Polygon Rings */}
+                                {[0.2, 0.4, 0.6, 0.8, 1.0].map((lvl, ringIdx) => {
+                                  const ringPoints = Array.from({ length: totalAxes }, (_, i) => {
+                                    const angle = -Math.PI / 2 + i * ((2 * Math.PI) / totalAxes);
+                                    const x = 240 + lvl * 155 * Math.cos(angle);
+                                    const y = 240 + lvl * 155 * Math.sin(angle);
+                                    return `${x.toFixed(1)},${y.toFixed(1)}`;
+                                  }).join(' ');
+
+                                  return (
+                                    <g key={`ring-${ringIdx}`}>
+                                      <polygon
+                                        points={ringPoints}
+                                        fill={ringIdx % 2 === 0 ? 'rgba(241, 245, 249, 0.4)' : 'none'}
+                                        stroke="#cbd5e1"
+                                        strokeWidth="1"
+                                        strokeDasharray={lvl < 1.0 ? '3 3' : 'none'}
+                                      />
+                                      {/* Level percentage label at top spoke */}
+                                      <text
+                                        x="244"
+                                        y={240 - lvl * 155 + 11}
+                                        fill="#94a3b8"
+                                        fontSize="10"
+                                        fontFamily="monospace"
+                                        fontWeight="bold"
+                                      >
+                                        {(lvl * 100).toFixed(0)}%
+                                      </text>
                                     </g>
-                                  ))}
-                                </g>
-                              );
-                            })}
-                          </svg>
+                                  );
+                                })}
+
+                                {/* Spoke Axes & Dimension Labels */}
+                                {radarData.dimensions.map((dimName, i) => {
+                                  const angle = -Math.PI / 2 + i * ((2 * Math.PI) / totalAxes);
+                                  const xEnd = 240 + 155 * Math.cos(angle);
+                                  const yEnd = 240 + 155 * Math.sin(angle);
+
+                                  // Label coordinate
+                                  const labelR = 192;
+                                  const lx = 240 + labelR * Math.cos(angle);
+                                  const ly = 240 + labelR * Math.sin(angle);
+
+                                  let textAnchor = 'middle';
+                                  if (Math.cos(angle) > 0.25) textAnchor = 'start';
+                                  else if (Math.cos(angle) < -0.25) textAnchor = 'end';
+
+                                  return (
+                                    <g key={`axis-${i}`}>
+                                      {/* Spoke Line */}
+                                      <line
+                                        x1="240"
+                                        y1="240"
+                                        x2={xEnd.toFixed(1)}
+                                        y2={yEnd.toFixed(1)}
+                                        stroke="#94a3b8"
+                                        strokeWidth="1.2"
+                                      />
+                                      {/* Outer tick */}
+                                      <circle
+                                        cx={xEnd.toFixed(1)}
+                                        cy={yEnd.toFixed(1)}
+                                        r="2.5"
+                                        fill="#64748b"
+                                      />
+                                      {/* Label text */}
+                                      <text
+                                        x={lx.toFixed(1)}
+                                        y={ly.toFixed(1)}
+                                        textAnchor={textAnchor as 'start' | 'end' | 'middle'}
+                                        fill="#1e293b"
+                                        fontSize="11"
+                                        fontWeight="bold"
+                                        className="select-none"
+                                      >
+                                        {dimName}
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Model Overlay Polygons */}
+                                {radarData.models.map((m, mIdx) => {
+                                  if (visibleRadarModels[m.model_name] === false) return null;
+                                  const pal = RADAR_PALETTE[mIdx % RADAR_PALETTE.length];
+
+                                  const pts = m.dimensions.map((dim, i) => {
+                                    const angle = -Math.PI / 2 + i * ((2 * Math.PI) / totalAxes);
+                                    const r = (Math.max(5, Math.min(100, dim.score)) / 100) * 155;
+                                    const x = 240 + r * Math.cos(angle);
+                                    const y = 240 + r * Math.sin(angle);
+                                    return { x, y, score: dim.score, name: dim.dimension_name || dim.name || '' };
+                                  });
+
+                                  const pointsStr = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+                                  return (
+                                    <g key={`model-poly-${m.model_name}`} className="transition-all duration-300">
+                                      {/* Filled Polygon */}
+                                      <polygon
+                                        points={pointsStr}
+                                        fill={pal.fill}
+                                        stroke={pal.stroke}
+                                        strokeWidth="2.5"
+                                        className="transition-all hover:opacity-90"
+                                      />
+
+                                      {/* Dimension Vertices */}
+                                      {pts.map((pt, pIdx) => (
+                                        <g key={`pt-${m.model_name}-${pIdx}`}>
+                                          <circle
+                                            cx={pt.x.toFixed(1)}
+                                            cy={pt.y.toFixed(1)}
+                                            r="4"
+                                            fill={pal.dot}
+                                            stroke="#ffffff"
+                                            strokeWidth="1.5"
+                                            className="transition hover:r-6 cursor-pointer"
+                                          >
+                                            <title>{`${m.model_name}\n${pt.name}: ${pt.score.toFixed(1)}`}</title>
+                                          </circle>
+                                        </g>
+                                      ))}
+                                    </g>
+                                  );
+                                })}
+                              </svg>
+                            );
+                          })()}
                         </div>
 
                         {/* Visibility Legend / Model Toggles */}

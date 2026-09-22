@@ -777,12 +777,133 @@ def compute_rouge(
     }
 
 
+def normalize_text_for_eval(text: str) -> str:
+    """
+    Değerlendirme için metin normalizasyonu:
+    - Küçük harfe dönüştürme (lowercase)
+    - Noktalama işaretlerini ayıklama
+    - Fazla boşlukları temizleme
+    - Türkçe karakterleri (ç, ğ, ı, ö, ş, ü) koruma
+    """
+    text = str(text or "").lower().strip()
+    text = re.sub(r"[^\w\s]", " ", text)
+    return " ".join(text.split())
+
+
+def compute_exact_match(
+    prediction: str,
+    reference: Union[str, Sequence[str]]
+) -> float:
+    """
+    Normalize edilmiş metinler arasında Exact Match (EM) tam eşleşme skoru.
+    Eğer tahmin, referanslardan herhangi biriyle birebir eşleşirse 100.0, aksi halde 0.0 döner.
+    """
+    refs = [reference] if isinstance(reference, str) else list(reference)
+    norm_pred = normalize_text_for_eval(prediction)
+    for r in refs:
+        if norm_pred == normalize_text_for_eval(r):
+            return 100.0
+    return 0.0
+
+
+def compute_token_f1(
+    prediction: str,
+    reference: Union[str, Sequence[str]]
+) -> Dict[str, float]:
+    """
+    SQuAD / QA tarzı token düzeyinde Precision, Recall ve F1 skoru.
+    Birden fazla referans varsa en yüksek F1 skorunu veren referans baz alınır.
+    """
+    refs = [reference] if isinstance(reference, str) else list(reference)
+    norm_pred = normalize_text_for_eval(prediction)
+    pred_tokens = norm_pred.split()
+    if not pred_tokens:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+
+    best_f1 = 0.0
+    best_p = 0.0
+    best_r = 0.0
+
+    pred_counts = Counter(pred_tokens)
+
+    for r in refs:
+        ref_tokens = normalize_text_for_eval(r).split()
+        if not ref_tokens:
+            continue
+        ref_counts = Counter(ref_tokens)
+        common = sum((pred_counts & ref_counts).values())
+        if common == 0:
+            continue
+        p = common / len(pred_tokens)
+        rec = common / len(ref_tokens)
+        f1 = (2 * p * rec) / (p + rec)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_p = p
+            best_r = rec
+
+    return {
+        "precision": round(best_p * 100.0, 2),
+        "recall": round(best_r * 100.0, 2),
+        "f1": round(best_f1 * 100.0, 2)
+    }
+
+
+def compute_chrf(
+    prediction: str,
+    reference: Union[str, Sequence[str]],
+    n: int = 6,
+    beta: float = 2.0
+) -> float:
+    """
+    ChrF (Character n-gram F-score):
+    Türkçe gibi eklemeli ve morfolojik olarak zengin diller için karakter n-gram eşleşme F-skoru (Popović 2015).
+    n=6 ve beta=2.0 (recall ağırlıklı) standart değerleri kullanılır.
+    """
+    refs = [reference] if isinstance(reference, str) else list(reference)
+    pred_clean = "".join(str(prediction or "").lower().split())
+    if not pred_clean:
+        return 0.0
+
+    best_score = 0.0
+    for r in refs:
+        ref_clean = "".join(str(r or "").lower().split())
+        if not ref_clean:
+            continue
+
+        precisions = []
+        recalls = []
+        for order in range(1, n + 1):
+            pred_ngrams = Counter(pred_clean[i:i+order] for i in range(len(pred_clean) - order + 1))
+            ref_ngrams = Counter(ref_clean[i:i+order] for i in range(len(ref_clean) - order + 1))
+            total_pred = sum(pred_ngrams.values())
+            total_ref = sum(ref_ngrams.values())
+            overlap = sum((pred_ngrams & ref_ngrams).values())
+
+            p = overlap / total_pred if total_pred > 0 else 0.0
+            rec = overlap / total_ref if total_ref > 0 else 0.0
+            precisions.append(p)
+            recalls.append(rec)
+
+        avg_p = sum(precisions) / n if n > 0 else 0.0
+        avg_r = sum(recalls) / n if n > 0 else 0.0
+
+        if avg_p + avg_r == 0:
+            f = 0.0
+        else:
+            beta_sq = beta ** 2
+            f = (1 + beta_sq) * (avg_p * avg_r) / (beta_sq * avg_p + avg_r)
+        best_score = max(best_score, f)
+
+    return round(best_score * 100.0, 2)
+
+
 def evaluate_generation(
     predictions: Sequence[str],
     references: Union[Sequence[str], Sequence[Sequence[str]]]
 ) -> Dict[str, float]:
     """
-    Birden fazla tahmin ve referans için toplu BLEU ve ROUGE değerlendirmesi yapar.
+    Birden fazla tahmin ve referans için toplu BLEU, ROUGE, ChrF ve F1 değerlendirmesi yapar.
     
     Args:
         predictions: Model tahminleri
@@ -794,11 +915,15 @@ def evaluate_generation(
     if not predictions or not references or len(predictions) != len(references):
         return {
             "bleu-1": 0.0, "bleu-2": 0.0, "bleu-3": 0.0, "bleu-4": 0.0,
-            "bleu": 0.0, "rouge-1": 0.0, "rouge-2": 0.0, "rouge-l": 0.0
+            "bleu": 0.0, "rouge-1": 0.0, "rouge-2": 0.0, "rouge-l": 0.0,
+            "chrf": 0.0, "exact_match": 0.0, "token_f1": 0.0
         }
         
     all_bleu = [compute_bleu(p, r) for p, r in zip(predictions, references)]
     all_rouge = [compute_rouge(p, r) for p, r in zip(predictions, references)]
+    all_chrf = [compute_chrf(p, r) for p, r in zip(predictions, references)]
+    all_em = [compute_exact_match(p, r) for p, r in zip(predictions, references)]
+    all_f1 = [compute_token_f1(p, r)["f1"] for p, r in zip(predictions, references)]
     
     n = len(predictions)
     summary: Dict[str, float] = {}
@@ -806,6 +931,9 @@ def evaluate_generation(
         summary[key] = round(sum(b[key] for b in all_bleu) / n, 2)
     for key in ["rouge-1", "rouge-2", "rouge-l"]:
         summary[key] = round(sum(r[key] for r in all_rouge) / n, 2)
+    summary["chrf"] = round(sum(all_chrf) / n, 2)
+    summary["exact_match"] = round(sum(all_em) / n, 2)
+    summary["token_f1"] = round(sum(all_f1) / n, 2)
         
     return summary
 

@@ -1570,6 +1570,13 @@ export interface TextMetricInspectResponse {
   candidate_len: number;
   reference_len: number;
   rouge: Record<string, number>;
+  chrf?: number;
+  exact_match?: number;
+  token_f1?: {
+    precision: number;
+    recall: number;
+    f1: number;
+  };
 }
 
 export interface BenchmarkRunRequest {
@@ -1625,6 +1632,8 @@ export interface BenchmarkSampleQuestion {
   numeric_answer?: number;
   steps?: number;
   keywords?: string[];
+  context?: string;
+  question?: string;
 }
 
 export interface RadarDimensionScore {

@@ -235,7 +235,7 @@ describe('EvaluationLabPage Component', () => {
     const arenaTab = screen.getByRole('button', { name: /Model Comparison Arena/i });
     fireEvent.click(arenaTab);
 
-    expect(await screen.findByText(/5-Eksenli Model Radar Analizi/i)).toBeInTheDocument();
+    expect(await screen.findByText(/[56]-Eksenli Model Radar Analizi/i)).toBeInTheDocument();
 
     // Switch to Head-to-Head mode
     const headToHeadSubTab = screen.getByRole('button', { name: /İkili Karşılaştırma/i });
@@ -256,20 +256,20 @@ describe('EvaluationLabPage Component', () => {
     expect(screen.getByText('KAZANAN')).toBeInTheDocument();
   });
 
-  it('displays 5-Axis Model Radar chart and matrix in Arena mode', async () => {
+  it('displays 6-Axis Model Radar chart and matrix in Arena mode', async () => {
     render(<EvaluationLabPage />);
 
     const arenaTab = screen.getByRole('button', { name: /Model Comparison Arena/i });
     fireEvent.click(arenaTab);
 
-    expect(await screen.findByText(/5-Eksenli Model Radar Analizi/i)).toBeInTheDocument();
+    expect(await screen.findByText(/[56]-Eksenli Model Radar Analizi/i)).toBeInTheDocument();
     expect(screen.getByText(/Radar Analizi İçin Modelleri Seçin/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(api.evaluation.getRadarComparison).toHaveBeenCalled();
     });
 
-    expect(await screen.findByText(/5-Eksenli Radar Şampiyonu/i)).toBeInTheDocument();
+    expect(await screen.findByText(/[56]-Eksenli Radar Şampiyonu/i)).toBeInTheDocument();
     expect(screen.getByText(/Model Spider \/ Radar Grafiği/i)).toBeInTheDocument();
     expect(screen.getByText(/Çok Boyutlu Başarım Matrisi/i)).toBeInTheDocument();
   });

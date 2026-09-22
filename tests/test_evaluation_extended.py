@@ -40,6 +40,9 @@ def test_inspect_text_exact_match(client):
     assert data["bleu"]["bleu-1"] > 90.0
     assert data["rouge"]["rouge-1"] > 90.0
     assert data["rouge"]["rouge-l"] > 90.0
+    assert data["chrf"] == 100.0
+    assert data["exact_match"] == 100.0
+    assert data["token_f1"]["f1"] == 100.0
 
 
 def test_inspect_text_partial_overlap(client):
@@ -57,6 +60,9 @@ def test_inspect_text_partial_overlap(client):
     assert data["brevity_penalty"] < 1.0
     assert "hava" in data["matched_unigrams"]
     assert "bugün hava" in data["matched_bigrams"]
+    assert data["exact_match"] == 0.0
+    assert data["token_f1"]["f1"] > 0.0
+    assert data["chrf"] > 0.0
 
 
 def test_inspect_text_empty_mismatch(client):
@@ -74,6 +80,10 @@ def test_inspect_text_empty_mismatch(client):
     assert len(data["matched_bigrams"]) == 0
     assert data["bleu"]["bleu-1"] == 0.0
     assert data["rouge"]["rouge-1"] == 0.0
+    assert data["exact_match"] == 0.0
+    assert data["token_f1"]["f1"] == 0.0
+    # ChrF character unigrams may have incidental overlap ('a', 'm'), but score is very low
+    assert data["chrf"] < 20.0
 
 
 def test_list_available_benchmarks(client):
@@ -87,8 +97,11 @@ def test_list_available_benchmarks(client):
     assert "bleu" in data["benchmarks"]
     assert "rouge" in data["benchmarks"]
     assert "accuracy" in data["benchmarks"]
+    assert "turkish_summarization" in data["benchmarks"]
+    assert "turkish_qa" in data["benchmarks"]
     assert data["benchmarks"]["perplexity"]["lower_is_better"] is True
     assert data["benchmarks"]["bleu"]["lower_is_better"] is False
+    assert data["benchmarks"]["turkish_qa"]["metric"] == "token_f1"
 
 
 def test_benchmark_database_crud(client):
@@ -190,9 +203,65 @@ def test_sample_questions_api(client):
     assert len(data_tr) >= 8
     assert any("ankara" in (q["keywords"] or []) for q in data_tr)
 
+    resp_sm = client.get("/api/v1/evaluation/benchmarks/sample-questions?benchmark_name=turkish_summarization")
+    assert resp_sm.status_code == 200
+    data_sm = resp_sm.json()
+    assert len(data_sm) >= 6
+    assert data_sm[0]["category"] == "summarization"
+    assert len(data_sm[0]["target"]) > 0
+
+    resp_qa = client.get("/api/v1/evaluation/benchmarks/sample-questions?benchmark_name=turkish_qa")
+    assert resp_qa.status_code == 200
+    data_qa = resp_qa.json()
+    assert len(data_qa) >= 8
+    assert data_qa[0]["context"] is not None
+    assert data_qa[0]["question"] is not None
+
+
+def test_turkish_benchmarks_and_metrics():
+    """Test standalone metrics: normalize, exact_match, token_f1, chrf, and dataset builders."""
+    from src.evaluation.metrics import (
+        normalize_text_for_eval,
+        compute_exact_match,
+        compute_token_f1,
+        compute_chrf,
+    )
+    from src.evaluation.benchmarks import (
+        create_turkish_summarization_benchmark,
+        create_turkish_qa_benchmark,
+    )
+
+    # 1. Normalization
+    assert normalize_text_for_eval("  Örnek, Metin! Çığlık?  ") == "örnek metin çığlık"
+
+    # 2. Exact match
+    assert compute_exact_match("Ankara", ["İstanbul", "ankara"]) == 100.0
+    assert compute_exact_match("İzmir", "Ankara") == 0.0
+
+    # 3. Token F1
+    f1_exact = compute_token_f1("Mustafa Kemal Atatürk", "Mustafa Kemal Atatürk")
+    assert f1_exact["f1"] == 100.0
+    f1_part = compute_token_f1("Atatürk liderdir", "Mustafa Kemal Atatürk")
+    assert 0.0 < f1_part["f1"] < 100.0
+
+    # 4. ChrF
+    chrf_exact = compute_chrf("Türkiye Cumhuriyeti", "Türkiye Cumhuriyeti")
+    assert chrf_exact == 100.0
+    chrf_part = compute_chrf("Türkiye", "Türkiye Cumhuriyeti")
+    assert 0.0 < chrf_part < 100.0
+
+    # 5. Datasets
+    sm_ds = create_turkish_summarization_benchmark()
+    assert len(sm_ds) >= 6
+    assert sm_ds.name == "turkish_summarization"
+
+    qa_ds = create_turkish_qa_benchmark()
+    assert len(qa_ds) >= 8
+    assert qa_ds.name == "turkish_qa"
+
 
 def test_radar_comparison_api(client):
-    """Test POST /api/v1/evaluation/radar-comparison endpoint."""
+    """Test POST /api/v1/evaluation/radar-comparison endpoint with 6 dimensions."""
     payload = {
         "model_names": ["nano-gpt-v1", "turkish-gpt-small"]
     }
@@ -202,14 +271,14 @@ def test_radar_comparison_api(client):
 
     assert "models" in data
     assert len(data["models"]) == 2
-    assert len(data["dimensions"]) == 5
+    assert len(data["dimensions"]) == 6
     assert "overall_winner" in data
     assert "winner_by_dimension" in data
 
     for model_res in data["models"]:
-        assert len(model_res["dimensions"]) == 5
+        assert len(model_res["dimensions"]) == 6
         assert 0.0 <= model_res["overall_average"] <= 100.0
         for dim in model_res["dimensions"]:
             assert 0.0 <= dim["score"] <= 100.0
-            assert dim["dimension_key"] in ["reasoning", "knowledge", "fluency", "comprehension", "stability"]
+            assert dim["dimension_key"] in ["reasoning", "knowledge", "qa", "summarization", "fluency", "stability"]
 
