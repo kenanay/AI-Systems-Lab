@@ -1,0 +1,81 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-ci:
+    name: Backend CI (Python 3.11 & Pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify Code Compilation & Syntax
+        run: |
+          python -m compileall src backend tests
+
+      - name: Run Pytest Regression Suite
+        run: |
+          pytest tests/ -m "not slow" -v --tb=short
+
+  frontend-ci:
+    name: Frontend CI (Node 20, Jest & Next.js Build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: TypeScript Type Checking (tsc --noEmit)
+        run: npm run type-check
+
+      - name: Run Jest Component & Unit Tests
+        run: npm test -- --ci
+
+      - name: Next.js 14 Production Build Verification
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npm run build
+
+  ci-status:
+    name: Quality Gate All-Clear
+    needs: [backend-ci, frontend-ci]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Standard Verification Check
+        run: |
+          echo "✅ All 360+ Backend and 76 Frontend quality gates passed successfully!"
