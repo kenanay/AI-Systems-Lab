@@ -52,7 +52,7 @@ import logging
 import json
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple, Callable
+from typing import Optional, Dict, Any, List, Tuple, Callable, Union
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 import hashlib
@@ -322,7 +322,7 @@ class CheckpointManager:
     
     def load_checkpoint(
         self,
-        checkpoint_path: str,
+        checkpoint_path: Union[str, Path],
         model: Optional[torch.nn.Module] = None,
         optimizer: Optional[torch.optim.Optimizer] = None,
         scheduler: Optional[Any] = None,
@@ -333,15 +333,15 @@ class CheckpointManager:
         Checkpoint yükle.
         
         Args:
-            checkpoint_path: Checkpoint file path
-            model: Model to load state into (optional)
-            optimizer: Optimizer to load state into (optional)
+            checkpoint_path: Checkpoint dosya yolu
+            model: Model (state dict buraya yüklenir)
+            optimizer: Optimizer (state dict buraya yüklenir)
             scheduler: Scheduler to load state into (optional)
-            scaler: Scaler to load state into (optional)
-            strict: Strict state_dict loading
+            scaler: GradScaler to load state into (optional)
+            strict: Strict loading mode for model state dict
             
         Returns:
-            Dict: Checkpoint data
+            Dict: Checkpoint içeriği
             
         Example:
             >>> checkpoint = manager.load_checkpoint(
@@ -351,24 +351,24 @@ class CheckpointManager:
             ... )
             >>> print(f"Resumed from epoch {checkpoint['epoch']}")
         """
-        checkpoint_path = Path(checkpoint_path)
+        path = Path(checkpoint_path)
         
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
         
-        logger.info(f"Loading checkpoint: {checkpoint_path.name}")
+        logger.info(f"Loading checkpoint: {path.name}")
         
         # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        checkpoint = torch.load(path, map_location='cpu')
         
         # Verify integrity
-        metadata_path = self.metadata_dir / f"{checkpoint_path.name}.json"
+        metadata_path = self.metadata_dir / f"{path.name}.json"
         if metadata_path.exists():
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
             
             # Hash verification
-            current_hash = self._calculate_file_hash(checkpoint_path)
+            current_hash = self._calculate_file_hash(path)
             if metadata.get('checkpoint_hash') != current_hash:
                 logger.warning(f"Checkpoint hash mismatch! File may be corrupted.")
         
@@ -479,21 +479,21 @@ class CheckpointManager:
         
         return checkpoints
     
-    def delete_checkpoint(self, checkpoint_path: str) -> None:
+    def delete_checkpoint(self, checkpoint_path: Union[str, Path]) -> None:
         """
         Checkpoint sil.
         
         Args:
             checkpoint_path: Checkpoint file path
         """
-        checkpoint_path = Path(checkpoint_path)
+        path = Path(checkpoint_path)
         
-        if checkpoint_path.exists():
-            checkpoint_path.unlink()
-            logger.info(f"Deleted checkpoint: {checkpoint_path.name}")
+        if path.exists():
+            path.unlink()
+            logger.info(f"Deleted checkpoint: {path.name}")
         
         # Delete metadata
-        metadata_path = self.metadata_dir / f"{checkpoint_path.name}.json"
+        metadata_path = self.metadata_dir / f"{path.name}.json"
         if metadata_path.exists():
             metadata_path.unlink()
     

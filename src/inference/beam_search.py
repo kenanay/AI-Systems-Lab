@@ -111,8 +111,9 @@ def beam_search(
     input_ids = input_ids.to(device)
     
     # Get model config
-    max_seq_len = model.config.max_seq_len if hasattr(model, 'config') else 512
-    vocab_size = model.config.vocab_size if hasattr(model, 'config') else 50000
+    config = getattr(model, 'config', None)
+    max_seq_len: int = int(getattr(config, 'max_seq_len', 512))
+    vocab_size: int = int(getattr(config, 'vocab_size', 50000))
     
     # Initialize beams
     # Start with single hypothesis (the prompt)

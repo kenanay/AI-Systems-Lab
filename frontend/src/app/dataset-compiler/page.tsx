@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { datasetCompilerApi, listTokenizers, type TokenizerRecord } from '@/lib/api';
 import type {
   CompilationJobRequest,
@@ -40,6 +41,7 @@ export default function DatasetCompilerPage() {
   const [minLength, setMinLength] = useState(10);
   const [maxLength, setMaxLength] = useState(100000);
   const [allowPii, setAllowPii] = useState(false);
+  const [maskPii, setMaskPii] = useState(true);
   const [requireTrainingAllowed, setRequireTrainingAllowed] = useState(true);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
 
@@ -56,6 +58,22 @@ export default function DatasetCompilerPage() {
   // Load tokenizers
   useEffect(() => {
     loadTokenizers();
+  }, []);
+
+  // Pre-fill from URL query parameters (e.g. from Synthetic Lab bridge)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const fileIdParam = params.get('file_id');
+      const datasetNameParam = params.get('dataset_name');
+      if (fileIdParam) {
+        setSelectedFileIds((prev) => (prev.includes(fileIdParam) ? prev : [...prev, fileIdParam]));
+      }
+      if (datasetNameParam) {
+        setDatasetName(datasetNameParam);
+        setJobName(`compile_${datasetNameParam}`);
+      }
+    }
   }, []);
 
   // Auto-refresh jobs when on jobs tab
@@ -146,6 +164,7 @@ export default function DatasetCompilerPage() {
           min_length: minLength,
           max_length: maxLength,
           allow_pii: allowPii,
+          mask_pii: maskPii,
           require_training_allowed: requireTrainingAllowed,
           remove_duplicates: removeDuplicates,
         },
@@ -430,12 +449,24 @@ export default function DatasetCompilerPage() {
                 <label className="flex items-center space-x-2">
                   <input
                     type="checkbox"
+                    checked={maskPii}
+                    onChange={(e) => setMaskPii(e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">
+                    🛡️ <strong>PII Maskeleme (Anonimleştirme):</strong> TC Kimlik, Telefon, E-posta ve IBAN verilerini maskele
+                  </span>
+                </label>
+
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
                     checked={allowPii}
                     onChange={(e) => setAllowPii(e.target.checked)}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
                   <span className="text-sm text-gray-700">
-                    PII içeren dokümanları dahil et (⚠️ Güvenlik riski)
+                    PII içeren dokümanları filtresiz dahil et (⚠️ Güvenlik riski)
                   </span>
                 </label>
 
@@ -552,8 +583,21 @@ export default function DatasetCompilerPage() {
                     </td>
                     <td className="px-6 py-4 text-sm">
                       {job.result_metadata?.dataset_id && (
-                        <div className="text-green-600 font-mono text-xs">
-                          ✓ {job.result_metadata.dataset_id}
+                        <div className="space-y-1">
+                          <div className="text-green-600 font-mono text-xs">
+                            ✓ {job.result_metadata.dataset_id}
+                          </div>
+                          {Boolean(job.result_metadata?.stats?.pii_masked_count) && (
+                            <div className="text-[11px] text-amber-600 font-medium">
+                              🛡️ {job.result_metadata.stats.pii_masked_count} PII maskelendi
+                            </div>
+                          )}
+                          <Link
+                            href={`/training?dataset_id=${encodeURIComponent(job.result_metadata.dataset_id)}&dataset_name=${encodeURIComponent(job.job_name)}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 text-[11px] font-semibold rounded transition"
+                          >
+                            🚀 Eğitime Aktar ➔
+                          </Link>
                         </div>
                       )}
                       {job.error && (
@@ -574,10 +618,17 @@ export default function DatasetCompilerPage() {
         </div>
       )}
 
-      {/* Versions Tab */}
+      {/* Dataset Versions Tab */}
       {activeTab === 'versions' && (
-        <div>
-          <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-xl font-semibold">Dataset Versiyonları</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Compile edilmiş Parquet dataset versiyonları ve eğitim paketleri
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -627,22 +678,30 @@ export default function DatasetCompilerPage() {
                         : '-'}
                     </td>
                     <td className="px-6 py-4 text-sm">
-                      <a
-                        href={datasetCompilerApi.getDownloadUrl(version.dataset_id)}
-                        className="text-blue-600 hover:text-blue-800 mr-4"
-                        download
-                      >
-                        ⬇ Download
-                      </a>
-                      <a
-                        href={datasetCompilerApi.getMetadataDownloadUrl(
-                          version.dataset_id
-                        )}
-                        className="text-gray-600 hover:text-gray-800"
-                        download
-                      >
-                        📄 Metadata
-                      </a>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <Link
+                          href={`/training?dataset_id=${encodeURIComponent(version.dataset_id)}&dataset_name=${encodeURIComponent(version.name)}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white text-xs font-semibold rounded hover:bg-indigo-700 transition shadow-2xs"
+                        >
+                          🚀 Model Eğit
+                        </Link>
+                        <a
+                          href={datasetCompilerApi.getDownloadUrl(version.dataset_id)}
+                          className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                          download
+                        >
+                          ⬇ İndir
+                        </a>
+                        <a
+                          href={datasetCompilerApi.getMetadataDownloadUrl(
+                            version.dataset_id
+                          )}
+                          className="text-gray-600 hover:text-gray-800 text-xs font-medium"
+                          download
+                        >
+                          📄 Metadata
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 ))}

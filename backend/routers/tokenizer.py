@@ -464,6 +464,8 @@ async def update_tokenizer(
     
     # Updated tokenizer'ı getir
     tokenizer = service.get_tokenizer(tokenizer_id)
+    if not tokenizer:
+        raise HTTPException(status_code=404, detail="Tokenizer bulunamadı")
     
     return TokenizerResponse(
         tokenizer_id=tokenizer["tokenizer_id"],

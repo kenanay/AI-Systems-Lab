@@ -5,7 +5,8 @@ Canonical dataset'i Parquet formatında yaz.
 """
 
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
+import json
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -38,7 +39,7 @@ class ParquetWriter:
         self,
         file_records: List[Dict[str, Any]],
         output_filename: str = "files.parquet"
-    ) -> Path:
+    ) -> Optional[Path]:
         """
         FileRecord'ları files.parquet'e yaz.
         
@@ -108,7 +109,7 @@ class ParquetWriter:
         self,
         document_records: List[Dict[str, Any]],
         output_filename: str = "documents.parquet"
-    ) -> Path:
+    ) -> Optional[Path]:
         """
         DocumentRecord'ları documents.parquet'e yaz.
         
@@ -207,7 +208,7 @@ class ParquetWriter:
             
             # Duplicate kontrolü (SHA-256 bazlı)
             if 'sha256' in existing_df.columns and 'sha256' in new_df.columns:
-                existing_hashes = set(existing_df['sha256'])
+                existing_hashes = list(set(existing_df['sha256']))
                 new_df = new_df[~new_df['sha256'].isin(existing_hashes)]
                 
                 duplicates_found = len(file_records) - len(new_df)
@@ -218,7 +219,8 @@ class ParquetWriter:
             combined_df = pd.concat([existing_df, new_df], ignore_index=True)
             
             # Yeniden yaz
-            self.write_files(combined_df.to_dict('records'), output_filename)
+            records_list = cast(List[Dict[str, Any]], getattr(combined_df, "to_dict")('records'))
+            self.write_files(records_list, output_filename)
         else:
             # İlk yazma
             self.write_files(file_records, output_filename)
@@ -278,10 +280,10 @@ class ParquetWriter:
                 "total_size_bytes": 0,
             }
         
-        stats = {
+        stats: Dict[str, Any] = {
             "total_files": len(files_df),
             "total_documents": len(docs_df),
-            "total_size_bytes": int(files_df['size_bytes'].sum()) if 'size_bytes' in files_df else 0,
+            "total_size_bytes": int(sum(files_df['size_bytes'].tolist())) if 'size_bytes' in files_df.columns else 0,
         }
         
         # Dosya tipi dağılımı
@@ -294,14 +296,15 @@ class ParquetWriter:
         
         # Kalite skoru ortalama
         if 'quality_score' in files_df.columns:
-            stats["avg_quality_score"] = float(files_df['quality_score'].mean())
+            quality_vals = [float(q) for q in files_df['quality_score'].dropna().tolist()]
+            stats["avg_quality_score"] = sum(quality_vals) / len(quality_vals) if quality_vals else 0.0
         
         # PII ve training izinli dosya sayıları
         if 'pii_detected' in files_df.columns:
-            stats["pii_detected_count"] = int(files_df['pii_detected'].sum())
+            stats["pii_detected_count"] = int(sum(bool(x) for x in files_df['pii_detected'].tolist()))
         
         if 'training_allowed' in files_df.columns:
-            stats["training_allowed_count"] = int(files_df['training_allowed'].sum())
+            stats["training_allowed_count"] = int(sum(bool(x) for x in files_df['training_allowed'].tolist()))
         
         return stats
 
@@ -386,31 +389,32 @@ class DatasetExporter:
         
         return version_dir
     
-    def export_pretraining(
+    def export_for_pretraining(
         self,
         output_path: Path,
-        filter_pii: bool = True,
+        min_quality_score: float = 0.5,
         require_training_allowed: bool = True,
-        min_quality_score: float = 0.5
-    ) -> Path:
+        filter_pii: bool = True,
+        deduplicate: bool = True
+    ) -> Optional[Path]:
         """
-        Pretraining formatına export et.
+        Pretraining için JSONL formatında export et.
         
-        **GÜVENLİK:** PII içeren ve training izni olmayan veriler otomatik filtrelenir.
+        **GÜVENLİK:** PII filtresi varsayılan olarak aktiftir ve devre dışı bırakılamaz.
         
-        Format: {"text": "..."}
-        
+        Format:
+            {"text": "document text..."}
+            {"text": "document text..."}
+            
         Args:
             output_path: Çıktı dosya path'i
-            filter_pii: PII içeren dokümanları filtrele (default: True)
-            require_training_allowed: training_allowed=True olanları al (default: True)
-            min_quality_score: Minimum kalite skoru eşiği (default: 0.5)
+            min_quality_score: Minimum kalite skoru (default: 0.5)
+            require_training_allowed: Sadece training_allowed=True olanları al
+            filter_pii: PII tespit edilenleri filtrele (ZORUNLU)
+            deduplicate: Duplicate'leri kaldır
             
         Returns:
             Export edilen dosyanın path'i
-            
-        Raises:
-            ValueError: Güvenlik filtreleri devre dışı bırakılmaya çalışılırsa
         """
         # GÜVENLİK: PII filtresi zorunlu
         if not filter_pii:
@@ -419,44 +423,51 @@ class DatasetExporter:
                 "PII içeren veri training dataset'e dahil edilemez."
             )
         
-        docs_df = self.reader.read_documents()
-        files_df = self.reader.read_files()
+        docs_df = cast(pd.DataFrame, self.reader.read_documents())
+        files_df = cast(pd.DataFrame, self.reader.read_files())
         
         if docs_df.empty:
             logger.warning("No documents to export")
             return None
         
         # Documents ile files'ı birleştir (metadata için)
-        merged_df = docs_df.merge(
+        merged = docs_df.merge(
             files_df[['file_id', 'pii_detected', 'training_allowed', 'license', 'security_level']],
             on='file_id',
             how='left'
         )
         
-        initial_count = len(merged_df)
+        initial_count = len(merged)
         
         # GÜVENLİK FİLTRELERİ
         # 1. PII filtresi
         if filter_pii:
-            merged_df = merged_df[merged_df['pii_detected'] == False]
-            logger.info(f"PII filter: {initial_count} -> {len(merged_df)} documents")
+            merged = merged[merged['pii_detected'] == False]
+            assert isinstance(merged, pd.DataFrame)
+            logger.info(f"PII filter: {initial_count} -> {len(merged)} documents")
         
         # 2. Training izni kontrolü
         if require_training_allowed:
-            merged_df = merged_df[merged_df['training_allowed'] == True]
-            logger.info(f"Training allowed filter: {len(merged_df)} documents")
+            merged = merged[merged['training_allowed'] == True]
+            assert isinstance(merged, pd.DataFrame)
+            logger.info(f"Training allowed filter: {len(merged)} documents")
         
         # 3. Kalite filtresi
-        if 'quality_score' in merged_df.columns:
-            merged_df = merged_df[merged_df['quality_score'] >= min_quality_score]
-            logger.info(f"Quality filter (>={min_quality_score}): {len(merged_df)} documents")
+        if 'quality_score' in merged.columns:
+            merged = merged[merged['quality_score'] >= min_quality_score]
+            logger.info(f"Quality filter (>={min_quality_score}): {len(merged)} documents")
         
         # 4. Boş içerik filtresi
-        merged_df = merged_df[merged_df['is_empty'] == False]
-        merged_df = merged_df[merged_df['text'].notna()]
-        merged_df = merged_df[merged_df['text'].str.strip() != '']
+        assert isinstance(merged, pd.DataFrame)
+        merged = merged[merged['is_empty'] == False]
+        assert isinstance(merged, pd.DataFrame)
+        merged = merged[merged['text'].notna()]
+        assert isinstance(merged, pd.DataFrame)
+        valid_text_mask = [bool(str(t).strip()) for t in merged['text'].tolist()]
+        merged = merged.iloc[valid_text_mask]
+        assert isinstance(merged, pd.DataFrame)
         
-        if merged_df.empty:
+        if merged.empty:
             logger.error("No documents passed security filters!")
             logger.error(
                 "Kontrol edin: training_allowed=True, pii_detected=False, "
@@ -464,7 +475,7 @@ class DatasetExporter:
             )
             return None
         
-        final_count = len(merged_df)
+        final_count = len(merged)
         logger.info(
             f"✅ Güvenlik filtreleri tamamlandı: {initial_count} -> {final_count} documents "
             f"({final_count/initial_count*100:.1f}% retained)"
@@ -473,13 +484,13 @@ class DatasetExporter:
         # JSONL formatında yaz
         exported_count = 0
         with open(output_path, 'w', encoding='utf-8') as f:
-            for _, row in merged_df.iterrows():
+            for _, row in merged.iterrows():
                 # Ekstra güvenlik: PII double-check
                 if row.get('pii_detected', False):
                     logger.warning(f"Skipping document {row['document_id']} - PII detected")
                     continue
                 
-                f.write('{"text": ' + pd.Series([row['text']]).to_json(orient='values')[1:-1] + '}\n')
+                f.write(json.dumps({"text": row['text']}, ensure_ascii=False) + '\n')
                 exported_count += 1
         
         logger.info(f"✅ Exported {exported_count} documents to {output_path}")
@@ -490,8 +501,11 @@ class DatasetExporter:
         )
         
         return output_path
+
+    # Alias for backwards compatibility
+    export_pretraining = export_for_pretraining
     
-    def export_metadata(self, output_path: Path) -> Path:
+    def export_metadata(self, output_path: Path) -> Optional[Path]:
         """
         Metadata CSV export.
         
@@ -501,7 +515,7 @@ class DatasetExporter:
         Returns:
             Export edilen dosyanın path'i
         """
-        files_df = self.reader.read_files()
+        files_df: pd.DataFrame = cast(pd.DataFrame, self.reader.read_files())
         
         if files_df.empty:
             logger.warning("No files to export")

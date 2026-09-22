@@ -12,7 +12,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Local AI Research Lab',
-  description: 'Local-First AI Systems Research & Learning Platform - Developed by Kenan AY',
+  description: 'Local-First AI Systems Research & Learning Platform - Developed by Kenan AY, Kütahya, TÜRKİYE',
   authors: [{ name: 'Kenan AY' }],
   keywords: ['AI', 'Machine Learning', 'Deep Learning', 'Research', 'Education', 'PyTorch', 'Transformer'],
   creator: 'Kenan AY',

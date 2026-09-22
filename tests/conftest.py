@@ -58,6 +58,7 @@ def test_db() -> Generator[Session, None, None]:
     """
     # In-memory SQLite database
     engine = create_engine("sqlite:///:memory:")
+    import backend.models  # noqa: F401
     Base.metadata.create_all(engine)
     
     TestSessionLocal = sessionmaker(bind=engine)

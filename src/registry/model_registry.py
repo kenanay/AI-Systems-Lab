@@ -54,7 +54,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, asdict, field
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -344,7 +344,8 @@ class ModelRegistry:
         self,
         model_name: str,
         version: Optional[str] = None,
-        load_weights: bool = False
+        load_weights: bool = False,
+        verify_integrity: bool = False
     ) -> Dict[str, Any]:
         """
         Load model metadata and optionally weights.
@@ -353,6 +354,7 @@ class ModelRegistry:
             model_name: Model identifier
             version: Version (None = latest)
             load_weights: Load model weights into memory
+            verify_integrity: Verify SHA-256 hash before loading
             
         Returns:
             Dict with model info and paths
@@ -390,6 +392,18 @@ class ModelRegistry:
         
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        # Integrity verification if requested
+        if verify_integrity:
+            expected_hash = metadata.model_hash
+            if expected_hash:
+                algo = "md5" if len(expected_hash) == 32 else "sha256"
+                actual_hash = self._calculate_hash(checkpoint_path, algorithm=algo)
+                if actual_hash.lower() != expected_hash.lower():
+                    raise ValueError(
+                        f"Model bütünlük doğrulaması başarısız ({model_name} v{version}): "
+                        f"beklenen {expected_hash}, hesaplanan {actual_hash}"
+                    )
         
         # Build response
         result = {
@@ -412,6 +426,55 @@ class ModelRegistry:
         logger.info(f"Loaded model: {model_name} v{version}")
         
         return result
+
+    def verify_model(
+        self,
+        model_name: str,
+        version: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Model checkpoint dosyasının SHA-256 bütünlüğünü doğrular.
+        
+        Diskteki .pt dosyasının hash'ini hesaplar ve metadata'daki model_hash ile karşılaştırır.
+        
+        Args:
+            model_name: Model adı
+            version: Versiyon (None = en son versiyon)
+            
+        Returns:
+            Dict: Doğrulama raporu
+                - model_name: str
+                - version: str
+                - verified: bool
+                - status: "VALID" | "CORRUPTED"
+                - expected_hash: str
+                - actual_hash: str
+                - file_size_mb: float
+                - checkpoint_path: str
+                - verified_at: str
+        """
+        info = self.load_model(model_name=model_name, version=version, load_weights=False)
+        metadata = info['metadata']
+        checkpoint_path = Path(info['checkpoint_path'])
+        
+        expected_hash = metadata.get('model_hash') or ""
+        algo = "md5" if len(expected_hash) == 32 else "sha256"
+        actual_hash = self._calculate_hash(checkpoint_path, algorithm=algo)
+        is_valid = bool(expected_hash and actual_hash.lower() == expected_hash.lower())
+        
+        file_size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
+        
+        return {
+            "model_name": metadata.get('model_name', model_name),
+            "version": metadata.get('version', version or "latest"),
+            "verified": is_valid,
+            "status": "VALID" if is_valid else "CORRUPTED",
+            "expected_hash": expected_hash,
+            "actual_hash": actual_hash,
+            "file_size_mb": round(file_size_mb, 2),
+            "checkpoint_path": str(checkpoint_path),
+            "verified_at": datetime.now(timezone.utc).isoformat()
+        }
     
     def get_latest_version(self, model_name: str) -> Optional[str]:
         """
@@ -585,64 +648,75 @@ class ModelRegistry:
         """
         logger.info(f"Deleting model: {model_name}, version: {version or 'all'}")
         
-        if model_name not in self.index:
-            raise ValueError(f"Model bulunamadı: {model_name}")
+        models_dict = self.index.setdefault('models', {})
+        if model_name not in models_dict:
+            # Check if directory exists on disk as fallback
+            model_disk_dir = self.models_dir / model_name
+            if not model_disk_dir.exists():
+                raise ValueError(f"Model bulunamadı: {model_name}")
+            models_dict[model_name] = {'versions': []}
+        
+        model_entry = models_dict[model_name]
+        existing_versions = [
+            v['version'] for v in model_entry.get('versions', [])
+            if isinstance(v, dict) and 'version' in v
+        ]
+        
+        # Check disk for versions as well
+        model_disk_dir = self.models_dir / model_name
+        if model_disk_dir.exists():
+            for p in model_disk_dir.iterdir():
+                if p.is_dir() and p.name not in existing_versions:
+                    existing_versions.append(p.name)
         
         deleted_count = 0
-        
         if version is None:
-            # Tüm versiyonları sil
-            versions_to_delete = list(self.index[model_name].keys())
+            versions_to_delete = list(existing_versions)
         else:
-            # Sadece belirli versiyonu sil
-            if version not in self.index[model_name]:
+            if version not in existing_versions:
                 raise ValueError(f"Version bulunamadı: {model_name}@{version}")
             versions_to_delete = [version]
         
         for ver in versions_to_delete:
-            metadata = self.index[model_name][ver]
+            # 1. Model dosyalarını sil (self.models_dir / model_name / ver)
+            ver_dir = self.models_dir / model_name / ver
+            if ver_dir.exists():
+                shutil.rmtree(ver_dir, ignore_errors=True)
+                logger.info(f"  Deleted model version directory: {ver_dir}")
             
-            # 1. Checkpoint dosyasını sil
-            checkpoint_path = Path(metadata.get("checkpoint_path", ""))
-            if checkpoint_path.exists():
-                checkpoint_path.unlink()
-                logger.info(f"  Deleted checkpoint: {checkpoint_path}")
-            
-            # 2. Metadata dosyasını sil
-            model_dir = self.registry_dir / model_name / ver
-            metadata_file = model_dir / "metadata.json"
+            # 2. Metadata dosyasını sil (self.metadata_dir / f"{model_name}_{ver}.json")
+            metadata_file = self.metadata_dir / f"{model_name}_{ver}.json"
             if metadata_file.exists():
                 metadata_file.unlink()
                 logger.info(f"  Deleted metadata: {metadata_file}")
             
-            # 3. Boş dizinleri temizle
-            if model_dir.exists() and not any(model_dir.iterdir()):
-                model_dir.rmdir()
-                logger.info(f"  Removed empty dir: {model_dir}")
-            
-            # 4. Index'ten sil
-            del self.index[model_name][ver]
+            # 3. Index'teki versiyon listesini güncelle
+            model_entry['versions'] = [
+                v for v in model_entry.get('versions', [])
+                if isinstance(v, dict) and v.get('version') != ver
+            ]
             deleted_count += 1
         
-        # Model'in hiç versiyonu kalmadıysa model'i de sil
-        if not self.index[model_name]:
-            del self.index[model_name]
-            model_base_dir = self.registry_dir / model_name
-            if model_base_dir.exists() and not any(model_base_dir.iterdir()):
-                model_base_dir.rmdir()
-                logger.info(f"  Removed model dir: {model_base_dir}")
+        # Model'in hiç versiyonu kalmadıysa model'i tamamen kaldır
+        if not model_entry.get('versions'):
+            if model_name in models_dict:
+                del models_dict[model_name]
+            if model_disk_dir.exists():
+                shutil.rmtree(model_disk_dir, ignore_errors=True)
+                logger.info(f"  Removed model directory: {model_disk_dir}")
         
-        # 5. Index'i kaydet
+        # Index'i kaydet
         self._save_index()
-        
         logger.info(f"✅ Deleted {deleted_count} version(s) of {model_name}")
         return True
-        """Calculate file MD5 hash."""
-        hash_md5 = hashlib.md5()
+
+    def _calculate_hash(self, file_path: Path, algorithm: str = "sha256") -> str:
+        """Calculate file hash (default SHA-256, supports MD5)."""
+        hasher = hashlib.sha256() if algorithm == "sha256" else hashlib.md5()
         with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
+            for chunk in iter(lambda: f.read(65536), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
 
 
 def main() -> None:

@@ -189,7 +189,8 @@ class TokenizerTrainingService:
             
             # Step 4: TokenizerRecord oluştur
             stats = tokenizer.get_vocab_stats()
-            duration = (datetime.utcnow() - job.started_at).total_seconds()
+            started = job.started_at or datetime.utcnow()
+            duration = (datetime.utcnow() - started).total_seconds()
             
             tokenizer_record = TokenizerRecord(
                 tokenizer_id=tokenizer_id,
@@ -217,13 +218,15 @@ class TokenizerTrainingService:
             job.completed_at = datetime.utcnow()
             job.progress = 1.0
             
-            job.result_metadata.update({
+            res_meta = dict(job.result_metadata or {})
+            res_meta.update({
                 "tokenizer_id": tokenizer_id,
                 "vocab_size": stats["vocab_size"],
                 "num_merges": stats["num_merges"],
                 "training_duration_seconds": duration,
                 "output_path": str(output_path)
             })
+            job.result_metadata = res_meta
             
             self.db.commit()
             
@@ -277,9 +280,22 @@ class TokenizerTrainingService:
         # Dataset ID'lerden text topla
         dataset_ids = config.get("dataset_ids", [])
         if dataset_ids:
-            # Dataset'lere ait file'ları bul
-            # TODO: Dataset → File mapping implementasyonu gerekli
-            logger.warning("Dataset-based training henüz implement edilmedi")
+            from backend.models import DatasetVersion
+            import pyarrow.parquet as pq
+            datasets = self.db.query(DatasetVersion).filter(
+                DatasetVersion.dataset_id.in_(dataset_ids)
+            ).all()
+            for ds in datasets:
+                ds_path = Path(str(ds.storage_path)) if ds.storage_path else None
+                if ds_path and ds_path.exists():
+                    try:
+                        table = pq.read_table(str(ds_path))
+                        if "text" in table.column_names:
+                            ds_texts = [str(t) for t in table.column("text").to_pylist() if t]
+                            texts.extend(ds_texts)
+                            logger.info(f"Collected {len(ds_texts)} texts from dataset {ds.dataset_id}")
+                    except Exception as e:
+                        logger.warning(f"Could not read dataset {ds.dataset_id} parquet: {e}")
         
         return texts
     
@@ -483,7 +499,7 @@ class TokenizerTrainingService:
         
         # Tokenizer yükle
         tokenizer = BPETokenizer()
-        tokenizer.load_vocab(Path(tokenizer_record.storage_path))
+        tokenizer.load_vocab(Path(str(tokenizer_record.storage_path)))
         
         # Usage stats güncelle
         tokenizer_record.usage_count += 1
@@ -554,7 +570,7 @@ class TokenizerTrainingService:
         
         if hard_delete:
             # Disk'ten sil
-            storage_path = Path(tokenizer.storage_path)
+            storage_path = Path(str(tokenizer.storage_path))
             if storage_path.exists():
                 import shutil
                 shutil.rmtree(storage_path)

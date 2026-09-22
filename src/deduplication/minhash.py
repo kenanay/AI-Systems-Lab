@@ -358,7 +358,7 @@ class MinHashDeduplicator:
                         doc_id2 = bucket_docs[j]
                         
                         # Ensure consistent ordering
-                        pair = tuple(sorted([doc_id1, doc_id2]))
+                        pair = (doc_id1, doc_id2) if doc_id1 <= doc_id2 else (doc_id2, doc_id1)
                         candidate_pairs.add(pair)
         
         logger.info(f"Found {len(candidate_pairs)} candidate pairs")
@@ -442,7 +442,8 @@ class MinHashDeduplicator:
                 similarities = []
                 for i in range(len(doc_ids)):
                     for j in range(i + 1, len(doc_ids)):
-                        pair = tuple(sorted([doc_ids[i], doc_ids[j]]))
+                        d1, d2 = doc_ids[i], doc_ids[j]
+                        pair = (d1, d2) if d1 <= d2 else (d2, d1)
                         if pair in similarity_map:
                             similarities.append(similarity_map[pair])
                 

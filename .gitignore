@@ -12,6 +12,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/src/lib/
 parts/
 sdist/
 var/
@@ -92,17 +93,15 @@ data/processed/
 *.pth
 *.ckpt
 *.safetensors
-models/
-models/checkpoints/
-models/cache/
-models/registry/
-checkpoints/
+/models/
+/checkpoints/
 
 # Training artifacts
 training_output/
 demo_output/
 sft_demo_output/
 integration_test_output/
+/runs/
 *.tsbuildinfo
 
 # Hugging Face cache
@@ -137,6 +136,8 @@ test_results/
 test_*.txt
 test_*.md
 test_*.csv
+coverage/
+frontend/coverage/
 
 # OS
 .DS_Store

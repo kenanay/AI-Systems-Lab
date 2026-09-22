@@ -3,7 +3,8 @@
 ## Ana Geliştirici
 
 **Kenan AY**  
-*Proje Geliştiricisi ve Düzenleyici*
+*Proje Geliştiricisi ve Düzenleyici*  
+📍 Kütahya, TÜRKİYE
 
 - Proje mimarisinin tasarlanması
 - Backend ve Frontend geliştirmesi
@@ -47,4 +48,5 @@ Bu proje şu kaynaklardan ilham almıştır:
 ---
 
 **Düzenleyen ve Geliştiren: Kenan AY**  
+📍 Kütahya, TÜRKİYE  
 © 2026 Local AI Research Lab

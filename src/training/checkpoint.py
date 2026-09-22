@@ -32,7 +32,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 import os
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from datetime import datetime
 import logging
 
@@ -97,7 +97,7 @@ class CheckpointManager:
         epoch: int,
         global_step: int,
         metrics: Dict[str, float],
-        scheduler: Optional[_LRScheduler] = None,
+        scheduler: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
         prefix: str = 'checkpoint'
     ) -> str:
@@ -199,10 +199,10 @@ class CheckpointManager:
     
     def load_checkpoint(
         self,
-        checkpoint_path: str,
+        checkpoint_path: Union[str, Path],
         model: nn.Module,
         optimizer: Optional[Optimizer] = None,
-        scheduler: Optional[_LRScheduler] = None,
+        scheduler: Optional[Any] = None,
         device: str = 'cpu'
     ) -> Dict[str, Any]:
         """
@@ -226,17 +226,17 @@ class CheckpointManager:
             ... )
             >>> start_epoch = checkpoint['epoch'] + 1
         """
-        checkpoint_path = Path(checkpoint_path)
+        path = Path(checkpoint_path)
         
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
         
         # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        checkpoint = torch.load(path, map_location=device)
         
         # Load model state
         model.load_state_dict(checkpoint['model_state_dict'])
-        logger.info(f"Model state loaded from {checkpoint_path}")
+        logger.info(f"Model state loaded from {path}")
         
         # Load optimizer state if provided
         if optimizer is not None and 'optimizer_state_dict' in checkpoint:
@@ -521,6 +521,7 @@ if __name__ == "__main__":
         
         # Load latest checkpoint
         latest = manager.get_latest_checkpoint()
+        assert latest is not None, "Latest checkpoint should not be None"
         print(f"  Latest checkpoint: {os.path.basename(latest)}")
         
         checkpoint = manager.load_checkpoint(
@@ -546,7 +547,7 @@ if __name__ == "__main__":
         if os.path.exists(best_path):
             model3 = GPTModel(config)
             best_checkpoint = manager.load_best_model(model3)
-            
+            assert best_checkpoint is not None
             print(f"  Best loss: {best_checkpoint['metrics']['loss']:.4f}")
             print(f"  Best epoch: {best_checkpoint['epoch']}")
             print(f"✅ Best model loaded")
@@ -587,7 +588,7 @@ if __name__ == "__main__":
         
         manager.save_metadata(metadata)
         loaded_metadata = manager.load_metadata()
-        
+        assert loaded_metadata is not None
         print(f"  Metadata saved and loaded")
         print(f"  Model name: {loaded_metadata['model_name']}")
         print(f"✅ Metadata working")

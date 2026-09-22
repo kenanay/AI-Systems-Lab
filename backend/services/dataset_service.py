@@ -16,7 +16,7 @@ Job-based architecture kullanılır çünkü compilation uzun sürebilir.
 from typing import List, Dict, Optional, Any, Callable
 from pathlib import Path
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from backend.models import (
@@ -58,7 +58,7 @@ class DatasetCompilationService:
         dataset_version: Optional[str] = None,
         document_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
-        tokenizer_id: str = None,
+        tokenizer_id: Optional[str] = None,
         compilation_params: Optional[Dict[str, Any]] = None
     ) -> CompilationJob:
         """
@@ -108,10 +108,13 @@ class DatasetCompilationService:
             ).all()
             
             if existing_versions:
-                version_strings = [v[0] for v in existing_versions]
+                version_strings = [str(v[0]) for v in existing_versions if v[0] is not None]
                 latest = get_latest_version(version_strings)
-                # PATCH bump (yeni data compilation)
-                dataset_version, _ = suggest_next_version(latest, schema_changed=False, params_changed=False)
+                if latest:
+                    # PATCH bump (yeni data compilation)
+                    dataset_version, _ = suggest_next_version(latest, schema_changed=False, params_changed=False)
+                else:
+                    dataset_version = "1.0.0"
             else:
                 dataset_version = "1.0.0"
         
@@ -145,7 +148,7 @@ class DatasetCompilationService:
             status="PENDING",
             config=config,
             progress=0.0,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         self.db.add(job)
@@ -192,19 +195,21 @@ class DatasetCompilationService:
         if not job:
             raise ValueError(f"Job bulunamadı: {job_id}")
         
-        if job.status not in ["PENDING", "PAUSED"]:
-            raise ValueError(f"Job geçersiz durumda: {job.status}")
+        current_status = str(job.status)
+        if current_status not in ["PENDING", "PAUSED"]:
+            raise ValueError(f"Job geçersiz durumda: {current_status}")
         
         try:
             # Job başlat
             job.status = "RUNNING"
-            job.started_at = datetime.utcnow()
+            job.started_at = datetime.now(timezone.utc)
             job.progress = 0.0
             self.db.commit()
             
             logger.info(f"Compilation job başladı: {job_id}")
             
-            config = job.config
+            job_cfg = getattr(job, "config", {})
+            config: Dict[str, Any] = dict(job_cfg) if isinstance(job_cfg, dict) else {}
             
             # Step 1: Documents'ları topla
             documents = self._collect_documents(config)
@@ -218,20 +223,23 @@ class DatasetCompilationService:
             self.db.commit()
             
             # Step 2: Tokenizer yükle
-            tokenizer = self._load_tokenizer(config["tokenizer_id"])
+            tokenizer_id_val = str(config.get("tokenizer_id", ""))
+            tokenizer = self._load_tokenizer(tokenizer_id_val)
             
             job.progress = 0.15
             self.db.commit()
             
             # Step 3: Output directory oluştur
-            output_dir = self.output_base_dir / f"{config['dataset_name']}_v{config['dataset_version']}"
+            dataset_name_val = str(config.get("dataset_name", "dataset"))
+            dataset_version_val = str(config.get("dataset_version", "1.0.0"))
+            output_dir = self.output_base_dir / f"{dataset_name_val}_v{dataset_version_val}"
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # Step 4: Compiler oluştur ve compile et
             compiler = DatasetCompiler(
                 output_dir=output_dir,
                 tokenizer=tokenizer,
-                dataset_version=config["dataset_version"],
+                dataset_version=dataset_version_val,
                 db_session=self.db
             )
             
@@ -239,14 +247,16 @@ class DatasetCompilationService:
             def compilation_progress(current: int, total: int):
                 # 0.15 - 0.9 arası progress (0.15 setup, 0.9 compilation)
                 progress = 0.15 + (current / total) * 0.75
-                job.progress = progress
-                self.db.commit()
+                if job is not None:
+                    job.progress = progress
+                    self.db.commit()
                 
                 if progress_callback:
                     progress_callback(current, total)
             
             # Compile
-            params = config["compilation_params"]
+            params_raw = config.get("compilation_params", {})
+            params: Dict[str, Any] = dict(params_raw) if isinstance(params_raw, dict) else {}
             result = compiler.compile_dataset(
                 documents=documents,
                 min_quality_score=params.get("min_quality_score", 0.5),
@@ -254,8 +264,11 @@ class DatasetCompilationService:
                 min_length=params.get("min_length", 10),
                 max_length=params.get("max_length", 100000),
                 allow_pii=params.get("allow_pii", False),
+                mask_pii=params.get("mask_pii", False),
                 require_training_allowed=params.get("require_training_allowed", True),
                 remove_duplicates=params.get("remove_duplicates", True),
+                use_minhash=params.get("use_minhash", True),
+                minhash_threshold=params.get("minhash_threshold", 0.85),
                 progress_callback=compilation_progress
             )
             
@@ -272,13 +285,13 @@ class DatasetCompilationService:
             
             # Step 6: Job tamamla
             job.status = "COMPLETED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             job.progress = 1.0
             
             job.result_metadata = {
-                "dataset_id": dataset_version.dataset_id,
-                "output_path": result["output_path"],
-                "metadata_path": result["metadata_path"],
+                "dataset_id": str(dataset_version.dataset_id),
+                "output_path": str(result["output_path"]),
+                "metadata_path": str(result["metadata_path"]),
                 "stats": result["stats"]
             }
             
@@ -296,13 +309,13 @@ class DatasetCompilationService:
             # Hata durumu
             job.status = "FAILED"
             job.error = str(e)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             self.db.commit()
             
             logger.error(f"Compilation job failed: {job_id} - {e}")
             raise
     
-    def _collect_documents(self, config: Dict) -> List[DocumentRecord]:
+    def _collect_documents(self, config: Dict[str, Any]) -> List[DocumentRecord]:
         """
         Configuration'a göre documents'ları topla.
         
@@ -363,16 +376,17 @@ class DatasetCompilationService:
         if not tokenizer_record:
             raise ValueError(f"Tokenizer record bulunamadı: {tokenizer_id}")
         
+        storage_path = str(tokenizer_record.storage_path)
         tokenizer = BPETokenizer()
-        tokenizer.load_vocab(Path(tokenizer_record.storage_path))
+        tokenizer.load_vocab(Path(storage_path))
         
         logger.info(f"Tokenizer loaded: {tokenizer_id}")
         return tokenizer
     
     def _create_dataset_version(
         self,
-        config: Dict,
-        result: Dict,
+        config: Dict[str, Any],
+        result: Dict[str, Any],
         job_id: str,
         documents: List[DocumentRecord]
     ) -> DatasetVersion:
@@ -421,7 +435,7 @@ class DatasetCompilationService:
             filter_stats=stats,
             is_active=True,
             is_snapshot=False,
-            compiled_at=datetime.utcnow()
+            compiled_at=datetime.now(timezone.utc)
         )
         
         self.db.add(dataset_version)
@@ -511,9 +525,10 @@ class DatasetCompilationService:
         if not job:
             return False
         
-        if job.status in ["RUNNING", "PENDING"]:
+        current_status = str(job.status)
+        if current_status in ["RUNNING", "PENDING"]:
             job.status = "CANCELLED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             self.db.commit()
             
             logger.info(f"Job cancelled: {job_id}")

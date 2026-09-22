@@ -140,7 +140,7 @@ class WeightInitializer:
                 nn.init.normal_(module.weight, mean=0.0, std=self.std)
                 if isinstance(module, nn.Embedding) and module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
-                if hasattr(module, 'bias') and module.bias is not None:
+                if isinstance(module, nn.Linear) and module.bias is not None:
                     nn.init.zeros_(module.bias)
             elif isinstance(module, nn.LayerNorm):
                 nn.init.ones_(module.weight)
@@ -238,7 +238,7 @@ class WeightInitializer:
                 nn.init.normal_(module.weight, mean=0.0, std=self.std)
                 if isinstance(module, nn.Embedding) and module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
-                if hasattr(module, 'bias') and module.bias is not None:
+                if isinstance(module, nn.Linear) and module.bias is not None:
                     nn.init.zeros_(module.bias)
             elif isinstance(module, nn.LayerNorm):
                 nn.init.ones_(module.weight)
@@ -330,15 +330,12 @@ def get_init_stats(model: nn.Module) -> Dict[str, Dict[str, float]]:
             }
         
         # Get weights
-        if hasattr(module, 'weight') and module.weight is not None:
-            # weight shape: varies by layer (e.g. [out_features, in_features] for Linear)
-            weight = module.weight.data
-            
-            # Compute statistics (scalars)
-            stats[module_type]['mean'].append(weight.mean().item())
-            stats[module_type]['std'].append(weight.std().item())
-            stats[module_type]['min'].append(weight.min().item())
-            stats[module_type]['max'].append(weight.max().item())
+        weight = getattr(module, 'weight', None)
+        if weight is not None and isinstance(weight, torch.Tensor):
+            stats[module_type]['mean'].append(float(weight.mean().item()))
+            stats[module_type]['std'].append(float(weight.std().item()))
+            stats[module_type]['min'].append(float(weight.min().item()))
+            stats[module_type]['max'].append(float(weight.max().item()))
             stats[module_type]['count'] += 1
     
     # Aggregate statistics
@@ -424,7 +421,7 @@ if __name__ == "__main__":
     # Mark output projections for scaling
     for name, module in model_megatron.named_modules():
         if 'w_o' in name or 'output_projection' in name:
-            module._is_output_projection = True
+            setattr(module, '_is_output_projection', True)
     
     initialize_model(
         model_megatron,

@@ -280,6 +280,9 @@ class DistributedTrainer:
         if self.optimizer is None:
             raise RuntimeError("Optimizer not set.")
         
+        if self.ddp_model is None:
+            raise RuntimeError("Model not set. Call setup() first.")
+        
         # Forward pass
         self.ddp_model.train()
         
@@ -304,7 +307,7 @@ class DistributedTrainer:
         loss = loss / self.config.gradient_accumulation_steps
         
         # Backward pass
-        if self.config.mixed_precision:
+        if self.config.mixed_precision and self.scaler is not None:
             self.scaler.scale(loss).backward()
         else:
             loss.backward()
@@ -315,7 +318,7 @@ class DistributedTrainer:
         if is_last_accumulation:
             # Gradient clipping
             if self.config.gradient_clip_val is not None:
-                if self.config.mixed_precision:
+                if self.config.mixed_precision and self.scaler is not None:
                     self.scaler.unscale_(self.optimizer)
                 
                 torch.nn.utils.clip_grad_norm_(
@@ -324,7 +327,7 @@ class DistributedTrainer:
                 )
             
             # Optimizer step
-            if self.config.mixed_precision:
+            if self.config.mixed_precision and self.scaler is not None:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
@@ -355,6 +358,9 @@ class DistributedTrainer:
         """
         if not self.is_initialized:
             raise RuntimeError("Trainer not initialized. Call setup() first.")
+        
+        if self.ddp_model is None:
+            raise RuntimeError("Model not set. Call setup() first.")
         
         self.ddp_model.eval()
         
@@ -456,12 +462,12 @@ class DistributedTrainer:
     
     def save_checkpoint(
         self,
-        checkpoint_path: str,
+        checkpoint_path: Union[str, Path],
         epoch: int,
         metrics: Optional[Dict[str, float]] = None
     ) -> None:
         """
-        Checkpoint kaydet (only on rank 0).
+        Checkpoint kaydet (yalnızca rank 0).
         
         Args:
             checkpoint_path: Checkpoint file path
@@ -471,11 +477,17 @@ class DistributedTrainer:
         if not self.config.is_main_process:
             return
         
-        checkpoint_path = Path(checkpoint_path)
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        path = Path(checkpoint_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if self.ddp_model is None:
+            raise RuntimeError("Model not set. Call setup() first.")
         
         # Get model state (unwrap DDP)
-        model_state = self.ddp_model.module.state_dict() if self.config.is_distributed else self.ddp_model.state_dict()
+        if hasattr(self.ddp_model, "module"):
+            model_state = getattr(self.ddp_model, "module").state_dict()
+        else:
+            model_state = self.ddp_model.state_dict()
         
         checkpoint = {
             'epoch': epoch,
@@ -487,12 +499,12 @@ class DistributedTrainer:
             'version': self.VERSION
         }
         
-        torch.save(checkpoint, checkpoint_path)
-        logger.info(f"Checkpoint saved: {checkpoint_path}")
+        torch.save(checkpoint, path)
+        logger.info(f"Checkpoint saved: {path}")
     
     def load_checkpoint(
         self,
-        checkpoint_path: str
+        checkpoint_path: Union[str, Path]
     ) -> Dict[str, Any]:
         """
         Checkpoint yükle.
@@ -503,19 +515,22 @@ class DistributedTrainer:
         Returns:
             Checkpoint metadata
         """
-        checkpoint_path = Path(checkpoint_path)
+        path = Path(checkpoint_path)
         
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
         
         # Map location
         map_location = {'cuda:0': f'cuda:{self.config.local_rank}'} if torch.cuda.is_available() else 'cpu'
         
-        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+        checkpoint = torch.load(path, map_location=map_location)
+        
+        if self.ddp_model is None:
+            raise RuntimeError("Model not set. Call setup() first.")
         
         # Load model
-        if self.config.is_distributed:
-            self.ddp_model.module.load_state_dict(checkpoint['model_state_dict'])
+        if hasattr(self.ddp_model, "module"):
+            getattr(self.ddp_model, "module").load_state_dict(checkpoint['model_state_dict'])
         else:
             self.ddp_model.load_state_dict(checkpoint['model_state_dict'])
         
@@ -527,7 +542,7 @@ class DistributedTrainer:
         if self.scaler and checkpoint.get('scaler_state_dict'):
             self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
         
-        logger.info(f"Checkpoint loaded: {checkpoint_path}")
+        logger.info(f"Checkpoint loaded: {path}")
         logger.info(f"  Epoch: {checkpoint.get('epoch', 'unknown')}")
         
         return checkpoint
@@ -560,13 +575,17 @@ def launch_distributed(
         >>> launch_distributed(train_worker, world_size=4, model=model, config=config)
     """
     if world_size > 1:
-        mp.spawn(
-            fn,
-            args=(world_size, *args),
-            nprocs=world_size,
-            join=True,
-            **kwargs
-        )
+        spawn_fn = getattr(mp, 'spawn', None)
+        if spawn_fn is not None:
+            spawn_fn(
+                fn,
+                args=(world_size, *args),
+                nprocs=world_size,
+                join=True,
+                **kwargs
+            )
+        else:
+            raise RuntimeError("torch.multiprocessing.spawn is not available")
     else:
         # Single process
         fn(0, 1, *args, **kwargs)

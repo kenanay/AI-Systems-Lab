@@ -30,7 +30,7 @@ import sentencepiece as spm
 import logging
 import json
 from pathlib import Path
-from typing import List, Dict, Optional, Union, Tuple
+from typing import List, Dict, Optional, Union, Tuple, Any
 from dataclasses import dataclass, asdict
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class TokenizerConfig:
         return asdict(self)
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Union[int, float, str, bool]]) -> 'TokenizerConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> 'TokenizerConfig':
         """
         Dictionary'den config oluştur.
         
@@ -163,11 +163,11 @@ class SentencePieceTokenizer:
     
     def train(
         self,
-        corpus_path: str,
+        corpus_path: Union[str, Path],
         vocab_size: Optional[int] = None,
         model_prefix: str = "tokenizer",
         model_type: Optional[str] = None
-    ) -> Tuple[str, Dict]:
+    ) -> Tuple[str, Dict[str, Any]]:
         """
         SentencePiece model'i train et.
         
@@ -194,9 +194,9 @@ class SentencePieceTokenizer:
             >>> print(f"Model: {model_path}, Vocab: {stats['vocab_size']}")
         """
         # Corpus kontrolü
-        corpus_path = Path(corpus_path)
-        if not corpus_path.exists():
-            raise FileNotFoundError(f"Corpus dosyası bulunamadı: {corpus_path}")
+        corpus_file = Path(corpus_path)
+        if not corpus_file.exists():
+            raise FileNotFoundError(f"Corpus dosyası bulunamadı: {corpus_file}")
         
         # Config güncelle
         if vocab_size:
@@ -263,7 +263,7 @@ class SentencePieceTokenizer:
         
         return model_path, stats
     
-    def load(self, model_path: str):
+    def load(self, model_path: Union[str, Path]):
         """
         Eğitilmiş model'i yükle.
         
@@ -273,16 +273,16 @@ class SentencePieceTokenizer:
         Raises:
             FileNotFoundError: Model dosyası bulunamazsa
         """
-        model_path = Path(model_path)
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model dosyası bulunamadı: {model_path}")
+        model_file = Path(model_path)
+        if not model_file.exists():
+            raise FileNotFoundError(f"Model dosyası bulunamadı: {model_file}")
         
         self.sp_model = spm.SentencePieceProcessor()
-        self.sp_model.load(str(model_path))
-        self.model_path = str(model_path)
+        self.sp_model.load(str(model_file))
+        self.model_path = str(model_file)
         
         # Config varsa yükle
-        config_path = model_path.with_suffix('.config.json')
+        config_path = model_file.with_suffix('.config.json')
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
                 config_dict = json.load(f)
@@ -290,7 +290,7 @@ class SentencePieceTokenizer:
         
         logger.info(f"Model loaded: {model_path} (vocab_size={self.vocab_size})")
     
-    def save(self, output_dir: str, prefix: str = "tokenizer"):
+    def save(self, output_dir: Union[str, Path], prefix: str = "tokenizer"):
         """
         Model ve config'i kaydet.
         
@@ -298,28 +298,28 @@ class SentencePieceTokenizer:
             output_dir: Output directory
             prefix: Dosya prefix
         """
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
         
         if self.model_path:
             # Model dosyasını kopyala
             import shutil
             src = Path(self.model_path)
-            dst = output_dir / f"{prefix}.model"
+            dst = out_dir / f"{prefix}.model"
             shutil.copy(src, dst)
             
             # Vocab dosyası varsa kopyala
             vocab_src = src.with_suffix('.vocab')
             if vocab_src.exists():
-                vocab_dst = output_dir / f"{prefix}.vocab"
+                vocab_dst = out_dir / f"{prefix}.vocab"
                 shutil.copy(vocab_src, vocab_dst)
         
         # Config kaydet
-        config_path = output_dir / f"{prefix}.config.json"
+        config_path = out_dir / f"{prefix}.config.json"
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(self.config.to_dict(), f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Tokenizer saved to {output_dir}/{prefix}.*")
+        logger.info(f"Tokenizer saved to {out_dir}/{prefix}.*")
     
     def encode(
         self,
@@ -418,7 +418,27 @@ class SentencePieceTokenizer:
         Returns:
             Token ID listelerinin listesi
         """
-        return [self.encode(text, add_bos, add_eos) for text in texts]
+        return [self.encode_as_ids(text, add_bos, add_eos) for text in texts]
+
+    def encode_as_ids(
+        self,
+        text: str,
+        add_bos: bool = True,
+        add_eos: bool = True
+    ) -> List[int]:
+        """Encode text to token IDs."""
+        res = self.encode(text, add_bos=add_bos, add_eos=add_eos, out_type="id")
+        return [int(t) for t in res]
+
+    def encode_as_pieces(
+        self,
+        text: str,
+        add_bos: bool = False,
+        add_eos: bool = False
+    ) -> List[str]:
+        """Encode text to token pieces."""
+        res = self.encode(text, add_bos=add_bos, add_eos=add_eos, out_type="piece")
+        return [str(t) for t in res]
     
     def decode_batch(
         self,
@@ -515,8 +535,8 @@ class SentencePieceTokenizer:
         Returns:
             Dict ile stats: chars, tokens, compression_ratio, avg_token_len
         """
-        tokens = self.encode(text, add_bos=False, add_eos=False)
-        pieces = self.encode(text, add_bos=False, add_eos=False, out_type="piece")
+        tokens = self.encode_as_ids(text, add_bos=False, add_eos=False)
+        pieces = self.encode_as_pieces(text, add_bos=False, add_eos=False)
         
         char_count = len(text)
         token_count = len(tokens)
@@ -605,8 +625,8 @@ def main() -> None:
     # Encoding test
     print("\n3. Encoding test...")
     test_text = "Kütahya'da yapay zeka laboratuvarı"
-    tokens = tokenizer.encode(test_text)
-    pieces = tokenizer.encode(test_text, out_type="piece")
+    tokens = tokenizer.encode_as_ids(test_text)
+    pieces = tokenizer.encode_as_pieces(test_text)
     
     print(f"  Text: {test_text}")
     print(f"  Tokens: {tokens}")

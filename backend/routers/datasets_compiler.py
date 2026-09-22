@@ -12,7 +12,7 @@ Bu modül dataset compilation ve version management için REST API sağlar:
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 import logging
 from pathlib import Path
@@ -43,14 +43,19 @@ class CompilationJobRequest(BaseModel):
     compilation_params: Optional[dict] = Field(
         None,
         description="Compilation parameters",
-        example={
-            "min_quality_score": 0.5,
-            "max_quality_score": 1.0,
-            "min_length": 10,
-            "max_length": 100000,
-            "allow_pii": False,
-            "require_training_allowed": True,
-            "remove_duplicates": True
+        json_schema_extra={
+            "example": {
+                "min_quality_score": 0.5,
+                "max_quality_score": 1.0,
+                "min_length": 10,
+                "max_length": 100000,
+                "allow_pii": False,
+                "mask_pii": True,
+                "require_training_allowed": True,
+                "remove_duplicates": True,
+                "use_minhash": True,
+                "minhash_threshold": 0.85
+            }
         }
     )
 
@@ -161,19 +166,25 @@ async def create_compilation_job(
         )
         
         # Background task olarak compilation başlat
+        j: Any = job
+        job_id_str = str(getattr(j, "job_id", ""))
         background_tasks.add_task(
             service.run_compilation_job,
-            job.job_id
+            job_id_str
         )
         
-        logger.info(f"Compilation job created and started: {job.job_id}")
+        logger.info(f"Compilation job created and started: {job_id_str}")
         
+        created_at_val = getattr(j, "created_at", None)
+        created_at_str = created_at_val.isoformat() if created_at_val is not None and hasattr(created_at_val, "isoformat") else str(created_at_val or "")
+        progress_val = getattr(j, "progress", 0.0)
+
         return CompilationJobResponse(
-            job_id=job.job_id,
-            job_name=job.job_name,
-            status=job.status,
-            progress=job.progress,
-            created_at=job.created_at.isoformat(),
+            job_id=job_id_str,
+            job_name=str(getattr(j, "job_name", "")),
+            status=str(getattr(j, "status", "PENDING")),
+            progress=float(progress_val) if progress_val is not None else 0.0,
+            created_at=created_at_str,
             result_metadata={}
         )
         

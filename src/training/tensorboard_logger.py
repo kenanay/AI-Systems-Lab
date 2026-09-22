@@ -30,6 +30,7 @@ try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_AVAILABLE = True
 except ImportError:
+    SummaryWriter = None  # type: ignore
     TENSORBOARD_AVAILABLE = False
     logger.warning(
         "TensorBoard not available. Install with: pip install tensorboard\n"
@@ -79,8 +80,8 @@ class TensorBoardLogger:
         self.experiment_name = experiment_name
         self.enabled = enabled and TENSORBOARD_AVAILABLE
         
-        if not self.enabled:
-            if not TENSORBOARD_AVAILABLE:
+        if not self.enabled or SummaryWriter is None:
+            if not TENSORBOARD_AVAILABLE or SummaryWriter is None:
                 logger.warning("TensorBoard not available, logging disabled")
             else:
                 logger.info("TensorBoard logging disabled")
@@ -118,7 +119,7 @@ class TensorBoardLogger:
             >>> tb_logger.log_scalar('train/loss', 0.5, step=100)
             >>> tb_logger.log_scalar('train/lr', 0.001, step=100)
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         self.writer.add_scalar(tag, value, global_step=step)
@@ -144,7 +145,7 @@ class TensorBoardLogger:
             ...     step=100
             ... )
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         self.writer.add_scalars(main_tag, tag_scalar_dict, global_step=step)
@@ -173,7 +174,7 @@ class TensorBoardLogger:
             ...     step=100
             ... )
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         # values shape: arbitrary [...]
@@ -204,7 +205,7 @@ class TensorBoardLogger:
             ...     log_gradients=True
             ... )
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         for name, param in model.named_parameters():
@@ -246,7 +247,7 @@ class TensorBoardLogger:
             ...     input_shape=(128,)  # seq_len=128
             ... )
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         try:
@@ -283,7 +284,7 @@ class TensorBoardLogger:
             ...     step=100
             ... )
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         self.writer.add_text(tag, text, global_step=step)
@@ -306,7 +307,7 @@ class TensorBoardLogger:
             ...     {'final_loss': 0.5}
             ... )
         """
-        if not self.enabled:
+        if not self.enabled or self.writer is None:
             return
         
         # Convert non-serializable values to strings

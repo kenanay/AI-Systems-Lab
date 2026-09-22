@@ -17,6 +17,7 @@ raporlar oluşturmak için kullanılır.
 
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib.figure import Figure
 matplotlib.use('Agg')  # Non-interactive backend for server environments
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union
@@ -59,14 +60,14 @@ class TrainingVisualizer:
         self,
         save_dir: Union[str, Path],
         style: str = 'seaborn-v0_8',
-        figsize: Tuple[int, int] = (10, 6),
+        figsize: Optional[Tuple[int, int]] = None,
         dpi: int = 100
     ):
         """Initialize visualizer."""
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
         
-        self.figsize = figsize
+        self.figsize = figsize or (10, 6)
         self.dpi = dpi
         
         # Set style
@@ -77,7 +78,7 @@ class TrainingVisualizer:
             plt.style.use('default')
         
         # Store figures
-        self.figures: Dict[str, plt.Figure] = {}
+        self.figures: Dict[str, Figure] = {}
         
         logger.info(f"TrainingVisualizer initialized: {save_dir}")
     
@@ -87,7 +88,7 @@ class TrainingVisualizer:
         val_losses: Optional[List[Tuple[int, float]]] = None,
         title: str = "Training Loss",
         smooth_window: int = 0
-    ) -> plt.Figure:
+    ) -> Figure:
         """
         Plot loss curves.
         
@@ -111,11 +112,11 @@ class TrainingVisualizer:
         
         # Extract steps and losses
         if train_losses:
-            train_steps, train_vals = zip(*train_losses)
+            train_steps, train_vals = map(list, zip(*train_losses))
             
             # Apply smoothing if requested
             if smooth_window > 1 and len(train_vals) > smooth_window:
-                train_vals_smooth = self._moving_average(train_vals, smooth_window)
+                train_vals_smooth = self._moving_average(list(train_vals), smooth_window)
                 ax.plot(train_steps, train_vals, alpha=0.3, color='blue', label='Train (raw)')
                 ax.plot(train_steps, train_vals_smooth, color='blue', linewidth=2, label='Train (smoothed)')
             else:
@@ -123,7 +124,7 @@ class TrainingVisualizer:
         
         # Plot validation losses
         if val_losses:
-            val_steps, val_vals = zip(*val_losses)
+            val_steps, val_vals = map(list, zip(*val_losses))
             ax.plot(val_steps, val_vals, color='red', linewidth=2, marker='o', 
                    markersize=5, label='Validation')
         
@@ -142,7 +143,7 @@ class TrainingVisualizer:
         self,
         lr_history: List[Tuple[int, float]],
         title: str = "Learning Rate Schedule"
-    ) -> plt.Figure:
+    ) -> Figure:
         """
         Plot learning rate schedule.
         
@@ -161,7 +162,7 @@ class TrainingVisualizer:
         fig, ax = plt.subplots(figsize=self.figsize, dpi=self.dpi)
         
         if lr_history:
-            steps, lrs = zip(*lr_history)
+            steps, lrs = map(list, zip(*lr_history))
             ax.plot(steps, lrs, color='green', linewidth=2)
         
         ax.set_xlabel('Training Step')
@@ -179,8 +180,8 @@ class TrainingVisualizer:
         self,
         metrics: Dict[str, List[Tuple[int, float]]],
         title: str = "Metrics Comparison",
-        ylabel: str = "Value"
-    ) -> plt.Figure:
+        ylabel: str = "Metric Value"
+    ) -> Figure:
         """
         Plot multiple metrics on same axes.
         
@@ -200,7 +201,8 @@ class TrainingVisualizer:
         """
         fig, ax = plt.subplots(figsize=self.figsize, dpi=self.dpi)
         
-        colors = plt.cm.tab10.colors  # Color palette
+        tab10 = getattr(plt.cm, 'tab10', None)
+        colors = getattr(tab10, 'colors', ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
         
         for idx, (metric_name, history) in enumerate(metrics.items()):
             if history:
@@ -224,7 +226,7 @@ class TrainingVisualizer:
         self,
         grad_norm_history: List[Tuple[int, float]],
         title: str = "Gradient Norm"
-    ) -> plt.Figure:
+    ) -> Figure:
         """
         Plot gradient norm progression.
         
@@ -269,7 +271,7 @@ class TrainingVisualizer:
         val_losses: Optional[List[Tuple[int, float]]],
         lr_history: List[Tuple[int, float]],
         grad_norm_history: List[Tuple[int, float]]
-    ) -> plt.Figure:
+    ) -> Figure:
         """
         Create comprehensive training summary with subplots.
         

@@ -285,16 +285,16 @@ def get_grad_norm(model: nn.Module, norm_type: float = 2.0) -> float:
         >>> grad_norm = get_grad_norm(model)
         >>> print(f"Gradient norm: {grad_norm:.4f}")
     """
-    parameters = [p for p in model.parameters() if p.grad is not None]
+    grads = [p.grad for p in model.parameters() if p.grad is not None]
     
-    if len(parameters) == 0:
+    if len(grads) == 0:
         return 0.0
     
     # Compute norm
     total_norm = torch.norm(
         torch.stack([
-            torch.norm(p.grad.detach(), norm_type) 
-            for p in parameters
+            torch.norm(g.detach(), norm_type) 
+            for g in grads
         ]),
         norm_type
     )

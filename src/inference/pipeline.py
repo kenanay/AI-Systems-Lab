@@ -250,6 +250,17 @@ class InferencePipeline:
         
         # Return single result or list
         return results[0] if not is_batch else results
+
+    def generate(
+        self,
+        prompt: Union[str, List[str]],
+        config: Optional[GenerationConfig] = None,
+        **kwargs
+    ) -> Union[str, List[str]]:
+        """
+        Generate text from prompt(s). Alias for __call__.
+        """
+        return self(prompt, config=config, **kwargs)
     
     def _generate_single(
         self,
@@ -354,7 +365,8 @@ class InferencePipeline:
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
         
         # Get model config
-        max_seq_len = self.model.config.max_seq_len if hasattr(self.model, 'config') else 512
+        model_cfg = getattr(self.model, 'config', None)
+        max_seq_len: int = int(getattr(model_cfg, 'max_seq_len', 512)) if model_cfg is not None else 512
         
         # Generate token by token
         with torch.no_grad():

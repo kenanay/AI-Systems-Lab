@@ -6,7 +6,7 @@ Dosya yükleme, listeleme ve yönetimi endpoint'leri.
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Any
 import logging
 
 from backend.database import get_db
@@ -57,8 +57,15 @@ async def upload_file(
     """
     logger.info(f"File upload başladı: {file.filename}")
     
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Dosya adı boş olamaz"
+        )
+    filename: str = file.filename
+    
     # 1. Extension kontrolü (dosya okumadan önce)
-    if not is_allowed_file(file.filename, settings.allowed_extensions):
+    if not is_allowed_file(filename, settings.allowed_extensions):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"Desteklenmeyen dosya formatı. İzin verilen: {', '.join(settings.allowed_extensions)}"
@@ -91,7 +98,7 @@ async def upload_file(
     logger.info(f"Dosya boyutu: {format_file_size(file_size)}")
     
     # 3. MIME type detection
-    mime_type = detect_mime_type(file.filename, file_content)
+    mime_type = detect_mime_type(filename, file_content)
     logger.info(f"MIME type: {mime_type}")
     
     # 4. SHA-256 hash hesaplama (streaming-friendly)
@@ -124,7 +131,7 @@ async def upload_file(
     file_stream = BytesIO(file_content)
     relative_path, calculated_sha256 = storage_manager.save_file(
         file_stream,
-        file.filename,
+        filename,
         file_id
     )
     
@@ -138,7 +145,7 @@ async def upload_file(
     # 8. Database kaydı
     file_record = FileRecord(
         file_id=file_id,
-        original_name=file.filename,
+        original_name=filename,
         relative_path=str(relative_path),
         mime_type=mime_type,
         size_bytes=file_size,
@@ -158,7 +165,7 @@ async def upload_file(
     
     return FileUploadResponse(
         file_id=file_id,
-        filename=file.filename,
+        filename=filename,
         size_bytes=file_size,
         mime_type=mime_type,
         sha256=sha256,
@@ -172,7 +179,7 @@ def list_files(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
-) -> List[FileRecordResponse]:
+) -> Any:
     """
     Yüklenmiş dosyaları listele.
     

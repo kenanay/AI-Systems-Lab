@@ -19,6 +19,7 @@
         "name": "next"
       }
     ],
+    "types": ["jest", "@testing-library/jest-dom", "node"],
     "paths": {
       "@/*": ["./src/*"],
       "@/components/*": ["./src/components/*"],

@@ -9,13 +9,13 @@ from typing import Dict, Any, Optional
 import logging
 
 try:
-    from pypdf import PdfReader
+    from pypdf import PdfReader  # type: ignore
 except ImportError:
     # Fallback to older PyPDF2 if available
     try:
-        from PyPDF2 import PdfReader
+        from PyPDF2 import PdfReader  # type: ignore
     except ImportError:
-        PdfReader = None
+        PdfReader = None  # type: ignore
 
 from src.ingestion.base import BaseParser, ParserResult, ContentExtractionError
 
@@ -125,7 +125,7 @@ class PDFParser(BaseParser):
                 error=str(e)
             )
     
-    def _open_pdf(self, file_path: Path) -> PdfReader:
+    def _open_pdf(self, file_path: Path) -> Any:
         """
         PDF dosyasını aç.
         
@@ -138,12 +138,14 @@ class PDFParser(BaseParser):
         Raises:
             ContentExtractionError: PDF açılamazsa
         """
+        if PdfReader is None:
+            raise ContentExtractionError("pypdf is not installed. Install with: pip install pypdf")
         try:
             return PdfReader(str(file_path))
         except Exception as e:
             raise ContentExtractionError(f"Failed to open PDF: {e}")
     
-    def _extract_metadata(self, file_path: Path, reader: PdfReader) -> Dict[str, Any]:
+    def _extract_metadata(self, file_path: Path, reader: Any) -> Dict[str, Any]:
         """
         PDF metadata'sını çıkar.
         
@@ -213,7 +215,7 @@ class PDFParser(BaseParser):
         except Exception:
             return None
     
-    def _extract_text(self, reader: PdfReader) -> tuple[str, list[str]]:
+    def _extract_text(self, reader: Any) -> tuple[str, list[str]]:
         """
         PDF'den metin çıkar.
         
@@ -289,7 +291,7 @@ class PDFParser(BaseParser):
             **page_stats,
         }
     
-    def _quality_checks(self, text: str, reader: PdfReader) -> Dict[str, Any]:
+    def _quality_checks(self, text: str, reader: Any) -> Dict[str, Any]:
         """
         Kalite kontrolleri.
         
@@ -343,7 +345,7 @@ class SecurePDFParser(PDFParser):
     
     PARSER_NAME = "SecurePDFParser"
     
-    def _quality_checks(self, text: str, reader: PdfReader) -> Dict[str, Any]:
+    def _quality_checks(self, text: str, reader: Any) -> Dict[str, Any]:
         """
         Genişletilmiş güvenlik kontrolleri.
         
@@ -371,7 +373,7 @@ class SecurePDFParser(PDFParser):
         
         return quality
     
-    def _check_javascript(self, reader: PdfReader) -> bool:
+    def _check_javascript(self, reader: Any) -> bool:
         """
         PDF'de JavaScript var mı kontrol et.
         
@@ -394,7 +396,7 @@ class SecurePDFParser(PDFParser):
         
         return False
     
-    def _check_embedded_files(self, reader: PdfReader) -> bool:
+    def _check_embedded_files(self, reader: Any) -> bool:
         """
         PDF'de embedded file var mı kontrol et.
         

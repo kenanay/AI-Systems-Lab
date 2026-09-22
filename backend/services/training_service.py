@@ -250,11 +250,13 @@ class TrainingService:
                 lora_alpha = cfg.get("lora_alpha", 16)
                 
                 is_sft_training = job.job_type in ["SFT", "SFT_LORA"]
+                instruction_examples: List[InstructionExample] = []
+                text_corpus: List[str] = []
     
                 # 1. Veri yükleme - SFT vs Pretrain
                 if is_sft_training:
                     # SFT: Instruction-response pairs yükle
-                    instruction_examples = self._load_instruction_data(job, db)
+                    instruction_examples = TrainingService._load_instruction_data(job, db)
                     
                     if not instruction_examples:
                         logger.warning(f"No instruction data found for SFT job {job_id}, using fallback examples")
@@ -298,8 +300,6 @@ class TrainingService:
                             "Doğal dil işleme metinleri sayılara dönüştürerek analiz eder.",
                             "Local AI Research Lab uçtan uca araştırma platformudur."
                         ] * 10
-
-                full_text: str = "\n\n".join(text_corpus)
 
                 # 2. Tokenizer'ı hazırla
                 tokenizer_id = str(job.tokenizer_id) if job.tokenizer_id else None

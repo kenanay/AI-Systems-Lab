@@ -16,7 +16,7 @@ model improvement'ı anlamak için kritik öneme sahiptir.
 
 import torch
 import torch.nn as nn
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Union
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
@@ -176,7 +176,7 @@ class SampleTracker:
         tokenizer: Any,
         test_prompts: List[str],
         generation_config: Optional[Any] = None,
-        log_dir: Optional[Path] = None,
+        log_dir: Optional[Union[str, Path]] = None,
         log_to_tensorboard: bool = False,
         tensorboard_logger: Optional[Any] = None
     ):

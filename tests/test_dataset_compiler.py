@@ -289,6 +289,43 @@ def test_deduplication_empty_list(temp_dir, sample_tokenizer):
     assert len(result) == 0
 
 
+def test_deduplication_minhash_near_duplicates(temp_dir, sample_tokenizer):
+    """Test MinHash near-duplicate detection in DatasetCompiler"""
+    compiler = DatasetCompiler(temp_dir, sample_tokenizer)
+    
+    # 3 documents: 1 unique, 2 near-duplicates (differ only slightly)
+    tokenized_docs = [
+        {
+            "document_id": "doc_001",
+            "text": "Yapay zeka sistemleri derin ogrenme modelleri ile verimli calisir.",
+            "token_ids": [1, 2, 3]
+        },
+        {
+            "document_id": "doc_002",
+            "text": "Yapay zeka sistemleri derin ogrenme modelleri ile verimli calisir!",  # Near duplicate
+            "token_ids": [1, 2, 3, 4]
+        },
+        {
+            "document_id": "doc_003",
+            "text": "Tamamen baska bir konuda olan ucuncu dokuman burada yer almaktadir.",
+            "token_ids": [5, 6, 7]
+        }
+    ]
+    
+    # With MinHash enabled (threshold=0.8)
+    deduped = compiler._remove_duplicates(tokenized_docs, use_minhash=True, minhash_threshold=0.8)
+    assert len(deduped) == 2
+    assert compiler.stats["near_duplicates_removed"] == 1
+    assert compiler.stats["duplicates_removed"] == 1
+    
+    # With MinHash disabled (exact only)
+    compiler.stats["duplicates_removed"] = 0
+    compiler.stats["near_duplicates_removed"] = 0
+    exact_only = compiler._remove_duplicates(tokenized_docs, use_minhash=False)
+    assert len(exact_only) == 3
+    assert compiler.stats["near_duplicates_removed"] == 0
+
+
 # ============================================================================
 # Tokenization Tests
 # ============================================================================
@@ -460,6 +497,77 @@ def test_none_quality_score(temp_dir, sample_tokenizer):
     filtered = [doc for doc in documents if doc.quality_score and 0.5 <= doc.quality_score <= 1.0]
     # None quality should be filtered out
     assert len(filtered) == 0
+
+
+def test_compilation_with_pii_masking(temp_dir, sample_tokenizer):
+    """Test PII masking during dataset compilation."""
+    compiler = DatasetCompiler(temp_dir, sample_tokenizer)
+    sample_tokenizer.is_trained = True
+    
+    docs = [
+        DocumentRecord(
+            document_id="doc_pii_1",
+            file_id="file_001",
+            text="İletişim için ahmet@example.com adresine yazın veya 0532 123 45 67 numarasını arayın.",
+            char_count=80,
+            quality_score=0.9
+        ),
+        DocumentRecord(
+            document_id="doc_clean",
+            file_id="file_002",
+            text="Bu metin herhangi bir kişisel veri içermez.",
+            char_count=44,
+            quality_score=0.9
+        )
+    ]
+    
+    result = compiler.compile_dataset(
+        documents=docs,
+        mask_pii=True,
+        allow_pii=False,
+        require_training_allowed=False,
+        remove_duplicates=False
+    )
+    
+    stats = result["stats"]
+    assert stats["pii_masked_count"] == 1
+    assert stats["filtered_by_pii"] == 0
+    assert stats["final_count"] == 2
+
+
+def test_compilation_with_pii_filtering(temp_dir, sample_tokenizer):
+    """Test PII filtering (dropping) during dataset compilation."""
+    compiler = DatasetCompiler(temp_dir, sample_tokenizer)
+    sample_tokenizer.is_trained = True
+    
+    docs = [
+        DocumentRecord(
+            document_id="doc_pii_1",
+            file_id="file_001",
+            text="Yetkili e-posta: support@sirket.com adresidir.",
+            char_count=45,
+            quality_score=0.9
+        ),
+        DocumentRecord(
+            document_id="doc_clean",
+            file_id="file_002",
+            text="Bu güvenli bir eğitim metnidir.",
+            char_count=32,
+            quality_score=0.9
+        )
+    ]
+    
+    result = compiler.compile_dataset(
+        documents=docs,
+        mask_pii=False,
+        allow_pii=False,
+        require_training_allowed=False,
+        remove_duplicates=False
+    )
+    
+    stats = result["stats"]
+    assert stats["filtered_by_pii"] == 1
+    assert stats["final_count"] == 1
 
 
 if __name__ == "__main__":

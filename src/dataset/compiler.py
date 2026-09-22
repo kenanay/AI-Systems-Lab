@@ -16,9 +16,9 @@ Kaynaklar:
     - PyArrow Parquet: https://arrow.apache.org/docs/python/parquet.html
 """
 
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Callable
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import hashlib
 import json
@@ -78,8 +78,11 @@ class DatasetCompiler:
             "filtered_by_quality": 0,
             "filtered_by_license": 0,
             "filtered_by_pii": 0,
+            "pii_masked_count": 0,
             "filtered_by_length": 0,
             "duplicates_removed": 0,
+            "exact_duplicates_removed": 0,
+            "near_duplicates_removed": 0,
             "final_count": 0,
             "total_tokens": 0,
         }
@@ -92,9 +95,12 @@ class DatasetCompiler:
         min_length: int = 10,
         max_length: int = 100000,
         allow_pii: bool = False,
+        mask_pii: bool = False,
         require_training_allowed: bool = True,
         remove_duplicates: bool = True,
-        progress_callback: Optional[callable] = None
+        use_minhash: bool = True,
+        minhash_threshold: float = 0.85,
+        progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> Dict[str, Any]:
         """
         Documents'ları compile edip training dataset oluştur.
@@ -108,6 +114,8 @@ class DatasetCompiler:
             allow_pii: PII içeren documents'a izin ver mi
             require_training_allowed: training_allowed=True olanları filtrele
             remove_duplicates: Duplicate'leri kaldır
+            use_minhash: Near-duplicate deduplication için MinHash kullan
+            minhash_threshold: MinHash Jaccard threshold (default: 0.85)
             progress_callback: Progress callback function(current, total)
             
         Returns:
@@ -139,8 +147,10 @@ class DatasetCompiler:
         if require_training_allowed:
             filtered_docs = self._filter_by_training_permission(filtered_docs)
         
-        # Step 3: Filter by PII
-        if not allow_pii:
+        # Step 3: Handle PII (Masking or Filtering)
+        if mask_pii:
+            filtered_docs = self._mask_pii_in_documents(filtered_docs)
+        elif not allow_pii:
             filtered_docs = self._filter_by_pii(filtered_docs)
         
         # Step 4: Filter by length
@@ -153,16 +163,17 @@ class DatasetCompiler:
         for idx, doc in enumerate(filtered_docs):
             try:
                 # Tokenize
-                token_ids = self.tokenizer.encode(doc.text)
+                doc_text = str(doc.text or "")
+                token_ids = self.tokenizer.encode(doc_text)
                 
                 # Create tokenized document
                 tokenized_doc = {
                     "document_id": doc.document_id,
                     "file_id": doc.file_id,
-                    "text": doc.text,
+                    "text": doc_text,
                     "token_ids": token_ids,
                     "num_tokens": len(token_ids),
-                    "char_count": doc.char_count or len(doc.text),
+                    "char_count": doc.char_count or len(doc_text),
                     "word_count": doc.word_count,
                     "quality_score": doc.quality_score,
                     "language": doc.language,
@@ -184,7 +195,11 @@ class DatasetCompiler:
         
         # Step 6: Deduplication
         if remove_duplicates:
-            tokenized_docs = self._remove_duplicates(tokenized_docs)
+            tokenized_docs = self._remove_duplicates(
+                tokenized_docs,
+                use_minhash=use_minhash,
+                minhash_threshold=minhash_threshold
+            )
         
         self.stats["final_count"] = len(tokenized_docs)
         
@@ -278,14 +293,45 @@ class DatasetCompiler:
         
         return filtered
     
+    def _mask_pii_in_documents(
+        self,
+        documents: List[DocumentRecord]
+    ) -> List[DocumentRecord]:
+        """
+        PII içeren verileri maskele (anonimleştir).
+        TC Kimlik, Telefon, E-posta ve IBAN verilerini [MASK] etiketleriyle değiştirir.
+        
+        Args:
+            documents: Document listesi
+            
+        Returns:
+            List[DocumentRecord]: Maskelenmiş documents
+        """
+        from src.pii import scan_and_mask_text
+        
+        processed = []
+        for doc in documents:
+            masked_text, matches, summary = scan_and_mask_text(str(doc.text or ""))
+            if matches:
+                self.stats["pii_masked_count"] += 1
+                doc.text = masked_text
+                doc.char_count = len(masked_text)
+                if doc.word_count is not None:
+                    doc.word_count = len(masked_text.split())
+            processed.append(doc)
+            
+        logger.info(
+            f"PII maskeleme tamamlandı: {self.stats['pii_masked_count']} belgede hassas veri maskelendi."
+        )
+        return processed
+
     def _filter_by_pii(
         self,
         documents: List[DocumentRecord]
     ) -> List[DocumentRecord]:
         """
         PII detection'a göre filtrele.
-        
-        File'ın pii_detected=False olması gerekir.
+        Hem DB kaydındaki file.pii_detected hem de doğrudan metin taraması kontrol edilir.
         
         Args:
             documents: Document listesi
@@ -293,19 +339,28 @@ class DatasetCompiler:
         Returns:
             List[DocumentRecord]: Filtrelenmiş documents
         """
-        if not self.db_session:
-            logger.warning("No DB session, skipping PII filter")
-            return documents
+        from src.pii import TurkishPIIDetector
+        detector = TurkishPIIDetector()
         
         filtered = []
-        
         for doc in documents:
-            # File record'u al
-            file = self.db_session.query(FileRecord).filter(
-                FileRecord.file_id == doc.file_id
-            ).first()
+            has_pii = False
             
-            if file and not file.pii_detected:
+            # DB kontrolü
+            if self.db_session:
+                file = self.db_session.query(FileRecord).filter(
+                    FileRecord.file_id == doc.file_id
+                ).first()
+                if file and file.pii_detected:
+                    has_pii = True
+            
+            # Metin taraması kontrolü (DB session olmasa bile güvenli çalışır)
+            if not has_pii:
+                matches = detector.scan_text(str(doc.text or ""))
+                if matches:
+                    has_pii = True
+            
+            if not has_pii:
                 filtered.append(doc)
             else:
                 self.stats["filtered_by_pii"] += 1
@@ -314,7 +369,6 @@ class DatasetCompiler:
             f"PII filter: {len(filtered)}/{len(documents)} passed "
             f"(filtered: {self.stats['filtered_by_pii']})"
         )
-        
         return filtered
     
     def _filter_by_length(
@@ -337,7 +391,7 @@ class DatasetCompiler:
         filtered = []
         
         for doc in documents:
-            char_count = doc.char_count or len(doc.text or "")
+            char_count = doc.char_count or len(str(doc.text or ""))
             
             if min_length <= char_count <= max_length:
                 filtered.append(doc)
@@ -353,21 +407,27 @@ class DatasetCompiler:
     
     def _remove_duplicates(
         self,
-        tokenized_docs: List[Dict[str, Any]]
+        tokenized_docs: List[Dict[str, Any]],
+        use_minhash: bool = True,
+        minhash_threshold: float = 0.85
     ) -> List[Dict[str, Any]]:
         """
-        Duplicate documents'ları kaldır.
+        Duplicate documents'ları kaldır (Exact SHA-256 + Near-Duplicate MinHash/LSH).
         
-        Exact match: SHA-256 hash of text
+        Aşama 1: Exact match - SHA-256 hash of text
+        Aşama 2: Near-duplicate match - MinHash + LSH ile yüksek benzerlikli metinler
         
         Args:
             tokenized_docs: Tokenized document listesi
+            use_minhash: Near-duplicate deduplication için MinHash kullanılsın mı
+            minhash_threshold: MinHash Jaccard similarity threshold (0.0-1.0)
             
         Returns:
             List[Dict]: Deduplicated documents
         """
         seen_hashes: Set[str] = set()
-        unique_docs = []
+        exact_unique_docs: List[Dict[str, Any]] = []
+        exact_duplicates = 0
         
         for doc in tokenized_docs:
             # Text'in SHA-256 hash'i
@@ -375,13 +435,45 @@ class DatasetCompiler:
             
             if text_hash not in seen_hashes:
                 seen_hashes.add(text_hash)
-                unique_docs.append(doc)
+                exact_unique_docs.append(doc)
             else:
-                self.stats["duplicates_removed"] += 1
+                exact_duplicates += 1
+        
+        self.stats["exact_duplicates_removed"] = exact_duplicates
+        
+        # Aşama 2: Near-Duplicate (MinHash)
+        near_duplicates = 0
+        if use_minhash and len(exact_unique_docs) > 1:
+            try:
+                from src.deduplication.minhash import MinHashDeduplicator
+                deduplicator = MinHashDeduplicator(threshold=minhash_threshold, num_perm=64)
+                doc_tuples = [
+                    (str(d.get("document_id") or f"doc_{i}"), str(d["text"]))
+                    for i, d in enumerate(exact_unique_docs)
+                ]
+                unique_ids = set(deduplicator.deduplicate(doc_tuples, keep_representative=True))
+                
+                final_unique_docs: List[Dict[str, Any]] = []
+                for i, d in enumerate(exact_unique_docs):
+                    doc_id = str(d.get("document_id") or f"doc_{i}")
+                    if doc_id in unique_ids:
+                        final_unique_docs.append(d)
+                    else:
+                        near_duplicates += 1
+                
+                unique_docs = final_unique_docs
+            except Exception as e:
+                logger.warning(f"MinHash deduplication failed, keeping exact dedup results: {e}")
+                unique_docs = exact_unique_docs
+        else:
+            unique_docs = exact_unique_docs
+        
+        self.stats["near_duplicates_removed"] = near_duplicates
+        self.stats["duplicates_removed"] = exact_duplicates + near_duplicates
         
         logger.info(
-            f"Deduplication: {len(unique_docs)}/{len(tokenized_docs)} unique "
-            f"(duplicates removed: {self.stats['duplicates_removed']})"
+            f"Deduplication complete: {len(unique_docs)}/{len(tokenized_docs)} unique "
+            f"(exact removed: {exact_duplicates}, near-duplicates removed: {near_duplicates})"
         )
         
         return unique_docs
@@ -463,7 +555,7 @@ class DatasetCompiler:
             "dataset_version": self.dataset_version,
             "schema_version": self.SCHEMA_VERSION,
             "compiler_version": self.VERSION,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "tokenizer": {
                 "vocab_size": self.tokenizer.vocab_size,
                 "version": self.tokenizer.VERSION,

@@ -22,17 +22,19 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import DataLoader
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 import logging
 import time
 
 try:
-    from tqdm import tqdm
+    from tqdm import tqdm as _tqdm  # type: ignore
+    tqdm: Any = _tqdm
     HAS_TQDM = True
 except ImportError:
     HAS_TQDM = False
     # Simple progress indicator if tqdm not available
-    class tqdm:
+    class DummyTqdm:
         def __init__(self, *args, **kwargs):
             self.total = kwargs.get('total', 0)
             self.initial = kwargs.get('initial', 0)
@@ -43,6 +45,7 @@ except ImportError:
             pass
         def close(self):
             pass
+    tqdm: Any = DummyTqdm
 
 from src.training.loss import LanguageModelLoss
 from src.training.optimizer import create_optimizer, get_warmup_cosine_schedule, clip_gradients
@@ -186,7 +189,7 @@ class Trainer:
         model: nn.Module,
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader] = None,
-        config: TrainingConfig = None,
+        config: Optional[TrainingConfig] = None,
         checkpoint_dir: str = 'checkpoints',
         device: str = 'cpu',
         resume_from: Optional[str] = None,
@@ -203,7 +206,8 @@ class Trainer:
         self.device = device
         
         # Get vocab size from model
-        vocab_size = model.config.vocab_size if hasattr(model, 'config') else 8000
+        model_config = getattr(model, 'config', None)
+        vocab_size: int = int(getattr(model_config, 'vocab_size', 8000)) if model_config is not None else 8000
         
         # Loss function
         self.loss_fn = LanguageModelLoss(
@@ -271,7 +275,7 @@ class Trainer:
             self.tb_logger.log_hyperparameters(self.config.to_dict())
             # Log model graph (if possible)
             try:
-                max_seq_len = model.config.max_seq_len if hasattr(model, 'config') else 512
+                max_seq_len: int = int(getattr(model_config, 'max_seq_len', 512)) if model_config is not None else 512
                 self.tb_logger.log_model_graph(model, input_shape=(max_seq_len,))
             except Exception as e:
                 logger.warning(f"Could not log model graph: {e}")
@@ -283,7 +287,7 @@ class Trainer:
                 model=model,
                 tokenizer=tokenizer,
                 test_prompts=test_prompts,
-                log_dir=f"{checkpoint_dir}/samples",
+                log_dir=Path(f"{checkpoint_dir}/samples"),
                 log_to_tensorboard=enable_tensorboard,
                 tensorboard_logger=self.tb_logger
             )
@@ -320,6 +324,7 @@ class Trainer:
         pbar = tqdm(total=self.config.max_steps, initial=self.global_step, desc="Training")
         
         start_time = time.time()
+        metrics: Dict[str, Any] = {}
         
         while self.global_step < self.config.max_steps:
             # Training step
@@ -377,7 +382,11 @@ class Trainer:
         
         elapsed_time = time.time() - start_time
         logger.info(f"Training completed in {elapsed_time/60:.2f} minutes")
-        logger.info(f"Final train loss: {metrics.get('loss', 'N/A'):.4f}")
+        final_loss = metrics.get('loss', 'N/A')
+        if isinstance(final_loss, (int, float)):
+            logger.info(f"Final train loss: {final_loss:.4f}")
+        else:
+            logger.info(f"Final train loss: {final_loss}")
         if self.best_val_loss < float('inf'):
             logger.info(f"Best validation loss: {self.best_val_loss:.4f}")
         
@@ -431,7 +440,7 @@ class Trainer:
                 loss = loss / self.config.gradient_accumulation_steps
             
             # Backward pass
-            if self.config.use_amp:
+            if self.config.use_amp and self.scaler is not None:
                 self.scaler.scale(loss).backward()
             else:
                 loss.backward()
@@ -439,13 +448,13 @@ class Trainer:
             total_loss += loss.item()
         
         # Gradient clipping
-        if self.config.use_amp:
+        if self.config.use_amp and self.scaler is not None:
             self.scaler.unscale_(self.optimizer)
         
         grad_norm = clip_gradients(self.model, max_norm=self.config.max_grad_norm)
         
         # Optimizer step
-        if self.config.use_amp:
+        if self.config.use_amp and self.scaler is not None:
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
@@ -477,6 +486,10 @@ class Trainer:
             Dictionary of validation metrics
         """
         logger.info("Running validation...")
+        
+        if self.val_dataloader is None:
+            logger.warning("Validation dataloader not provided, skipping evaluation")
+            return {}
         
         self.model.eval()
         

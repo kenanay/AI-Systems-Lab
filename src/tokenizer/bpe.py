@@ -293,12 +293,20 @@ class BPETokenizer:
         
         return new_splits
     
-    def encode(self, text: str) -> List[int]:
+    def encode(
+        self,
+        text: str,
+        add_bos: bool = False,
+        add_eos: bool = False,
+        **kwargs: Any
+    ) -> List[int]:
         """
         Text'i token ID'lerine encode et.
         
         Args:
             text: Input text
+            add_bos: BOS token ekle (<BOS>)
+            add_eos: EOS token ekle (<EOS>)
             
         Returns:
             List[int]: Token ID listesi
@@ -313,6 +321,8 @@ class BPETokenizer:
         words = self._pre_tokenize(text)
         
         token_ids = []
+        if add_bos and "<BOS>" in self.vocab:
+            token_ids.append(self.vocab["<BOS>"])
         
         for word in words:
             # Byte-level encoding
@@ -339,6 +349,9 @@ class BPETokenizer:
             for token in tokens:
                 token_id = self.vocab.get(token, self.vocab.get("<UNK>", 1))
                 token_ids.append(token_id)
+        
+        if add_eos and "<EOS>" in self.vocab:
+            token_ids.append(self.vocab["<EOS>"])
         
         return token_ids
     
@@ -463,6 +476,17 @@ class BPETokenizer:
         tokenizer.load_vocab(p)
         return tokenizer
 
+    @classmethod
+    def from_file(cls, path: Union[str, Path]) -> "BPETokenizer":
+        """Alias for load()."""
+        return cls.load(path)
+
+    def get_vocab_size(self) -> int:
+        """Returns vocabulary size."""
+        return len(self.vocab)
+
+    def __len__(self) -> int:
+        return len(self.vocab)
     
     def get_vocab_stats(self) -> Dict[str, Any]:
         """

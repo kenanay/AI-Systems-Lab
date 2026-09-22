@@ -4,6 +4,7 @@ Backend API Ana Modülü
 FastAPI uygulamasının giriş noktası.
 
 Author: Kenan AY
+Location: Kütahya, TÜRKİYE
 Version: 1.2.0
 """
 
@@ -27,7 +28,7 @@ from fastapi.responses import JSONResponse
 
 from backend.config import settings
 from backend.database import init_db
-from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation
+from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation, embeddings, rag, tensor_lab, math_lab, transformer_lab, journey, systems_lab, synthetic_lab, nn_lab
 
 # Logger yapılandırması
 logging.basicConfig(
@@ -88,6 +89,15 @@ app.include_router(training.router)
 app.include_router(models.router)
 app.include_router(inference.router)
 app.include_router(evaluation.router)
+app.include_router(embeddings.router)
+app.include_router(rag.router)
+app.include_router(tensor_lab.router)
+app.include_router(math_lab.router)
+app.include_router(transformer_lab.router)
+app.include_router(journey.router)
+app.include_router(systems_lab.router)
+app.include_router(synthetic_lab.router)
+app.include_router(nn_lab.router)
 
 
 @app.get("/")
@@ -136,12 +146,12 @@ async def system_info() -> Dict[str, Any]:
     try:
         import torch
         info["pytorch_version"] = torch.__version__
-        info["cuda_available"] = bool(torch.cuda.is_available())
+        info["cuda_available"] = torch.cuda.is_available()
         
         if torch.cuda.is_available():
-            info["cuda_version"] = str(torch.version.cuda)
-            info["gpu_count"] = int(torch.cuda.device_count())
-            info["gpu_name"] = str(torch.cuda.get_device_name(0))
+            info["cuda_version"] = torch.version.cuda
+            info["gpu_count"] = torch.cuda.device_count()
+            info["gpu_name"] = torch.cuda.get_device_name(0)
     except ImportError:
         info["pytorch_version"] = "Not installed"
         info["cuda_available"] = False

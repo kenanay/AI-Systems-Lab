@@ -199,7 +199,8 @@ def generate_text(
     done = torch.zeros(batch_size, dtype=torch.bool, device=device)
     
     # Get model's max sequence length
-    max_seq_len = model.config.max_seq_len if hasattr(model, 'config') else 512
+    config = getattr(model, 'config', None)
+    max_seq_len: int = int(getattr(config, 'max_seq_len', 512))
     
     with torch.no_grad():
         for _ in range(max_new_tokens):

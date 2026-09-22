@@ -502,6 +502,7 @@ if __name__ == "__main__":
     
     # Create model with dead neurons (zero gradients)
     print("  - Testing dead neuron detection...")
+    assert model.fc1.weight.grad is not None
     model.fc1.weight.grad.zero_()  # Kill gradients
     grad_stats_dead = analyzer.analyze_gradients(model)
     health_dead = analyzer.compute_health_metrics(grad_stats_dead)
@@ -510,6 +511,7 @@ if __name__ == "__main__":
     
     # Test NaN detection
     print("  - Testing NaN detection...")
+    assert model.fc2.weight.grad is not None
     model.fc2.weight.grad[0, 0] = float('nan')
     grad_stats_nan = analyzer.analyze_gradients(model)
     assert any(s.has_nan for s in grad_stats_nan), "NaN detection failed"

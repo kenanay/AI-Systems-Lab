@@ -222,7 +222,7 @@ class TextParser(BaseParser):
         lines = text.splitlines()
         words = text.split()
         
-        metadata = {
+        metadata: Dict[str, Any] = {
             # Parser info
             "parser_name": self.PARSER_NAME,
             "parser_version": self.PARSER_VERSION,
@@ -278,7 +278,7 @@ class TextParser(BaseParser):
         Returns:
             Kalite bilgisi
         """
-        quality = {
+        quality: Dict[str, Any] = {
             "is_empty": len(text.strip()) == 0,
             "is_too_short": len(text) < 10,
             "has_repeated_chars": self._has_excessive_repetition(text),

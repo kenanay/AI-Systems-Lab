@@ -106,6 +106,23 @@ export default function HomePage() {
             </div>
           </Link>
 
+          {/* Model Hub - NOW ACTIVE */}
+          <Link
+            href="/models"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200"
+          >
+            <div className="text-4xl mb-4">📦</div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              Model Hub
+            </h2>
+            <p className="text-gray-600">
+              Eğitilmiş modelleri incele, sürümleri, parametreleri ve metrikleri yönet.
+            </p>
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Modelleri Gör →
+            </div>
+          </Link>
+
           {/* Model Playground - NOW ACTIVE */}
           <Link
             href="/playground"
@@ -123,33 +140,39 @@ export default function HomePage() {
             </div>
           </Link>
 
-          {/* Embedding Lab (Future) */}
-          <div className="bg-gray-100 rounded-lg shadow-md p-6 border border-gray-300 opacity-60 cursor-not-allowed">
-            <div className="text-4xl mb-4">🎯</div>
-            <h2 className="text-2xl font-semibold text-gray-700 mb-2">
+          {/* Embedding Lab - NOW ACTIVE */}
+          <Link
+            href="/embedding-lab"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200 group"
+          >
+            <div className="text-4xl mb-4 transform group-hover:scale-110 transition-transform">🎯</div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
               Embedding Lab
             </h2>
-            <p className="text-gray-500">
-              Word2Vec, GloVe ve transformer embedding'lerini keşfet.
+            <p className="text-gray-600">
+              Vektör uzayı, PCA 2D/3D projeksiyonu, Cosine benzerliği ve anlamsal cebiri keşfet.
             </p>
-            <div className="mt-4 text-sm text-gray-400 font-medium">
-              Yakında →
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Vektörleri İncele →
             </div>
-          </div>
+          </Link>
 
-          {/* Attention Lab (Future) */}
-          <div className="bg-gray-100 rounded-lg shadow-md p-6 border border-gray-300 opacity-60 cursor-not-allowed">
-            <div className="text-4xl mb-4">👁️</div>
-            <h2 className="text-2xl font-semibold text-gray-700 mb-2">
+          {/* Attention Lab - NOW ACTIVE */}
+          <Link
+            href="/attention-lab"
+            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow p-6 border border-gray-200 group"
+          >
+            <div className="text-4xl mb-4 transform group-hover:scale-110 transition-transform">👁️</div>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
               Attention Lab
             </h2>
-            <p className="text-gray-500">
-              Self-Attention ve Multi-Head Attention mekanizmasını görselleştir.
+            <p className="text-gray-600">
+              Self-Attention ve Multi-Head Attention matrislerini katman ve head bazında etkileşimli incele.
             </p>
-            <div className="mt-4 text-sm text-gray-400 font-medium">
-              Yakında →
+            <div className="mt-4 text-sm text-blue-600 font-medium">
+              Matrisleri Keşfet →
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Info section */}

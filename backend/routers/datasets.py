@@ -6,7 +6,7 @@ Dataset listeleme, istatistik ve export endpoint'leri.
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, List, Optional
 import logging
 
 from backend.database import get_db
@@ -41,7 +41,7 @@ def get_dataset_statistics(db: Session = Depends(get_db)) -> IngestionStats:
 @router.get("/documents", response_model=List[DocumentPreview])
 def list_documents(
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=50, le=100),
+    limit: int = Query(default=50, ge=1, le=100),
     language: Optional[str] = None,
     min_quality: Optional[float] = Query(default=None, ge=0.0, le=1.0),
     db: Session = Depends(get_db)
@@ -80,20 +80,22 @@ def list_documents(
     # Preview formatına dönüştür
     previews = []
     for doc in documents:
-        preview_text = doc.text[:500] if doc.text else ""
-        if len(doc.text or "") > 500:
+        d: Any = doc
+        doc_text = str(d.text or "")
+        preview_text = doc_text[:500]
+        if len(doc_text) > 500:
             preview_text += "..."
         
         previews.append(DocumentPreview(
-            document_id=doc.document_id,
-            file_id=doc.file_id,
-            title=doc.title,
+            document_id=str(d.document_id),
+            file_id=str(d.file_id),
+            title=str(d.title) if d.title is not None else None,
             text_preview=preview_text,
-            full_text_length=len(doc.text or ""),
-            language=doc.language,
-            char_count=doc.char_count,
-            word_count=doc.word_count,
-            created_at=doc.created_at
+            full_text_length=len(doc_text),
+            language=str(d.language) if d.language is not None else None,
+            char_count=int(d.char_count) if d.char_count is not None else None,
+            word_count=int(d.word_count) if d.word_count is not None else None,
+            created_at=d.created_at
         ))
     
     return previews
@@ -267,7 +269,7 @@ def export_for_pretraining(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     try:
-        result_path = dataset_exporter.export_pretraining(
+        result_path = dataset_exporter.export_for_pretraining(
             output_path=output_path,
             filter_pii=True,  # ❌ Devre dışı bırakılamaz
             require_training_allowed=True,

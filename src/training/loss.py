@@ -443,6 +443,7 @@ if __name__ == "__main__":
     loss_grad = compute_cross_entropy_loss(logits_grad, targets_grad)
     loss_grad.backward()
     
+    assert logits_grad.grad is not None
     print(f"  Gradients computed: {logits_grad.grad is not None}")
     print(f"  Gradient mean: {logits_grad.grad.mean():.6f}")
     print(f"  Gradient std: {logits_grad.grad.std():.6f}")

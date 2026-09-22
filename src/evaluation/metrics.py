@@ -42,11 +42,14 @@ Usage:
 import torch
 import torch.nn.functional as F
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Sequence
 from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import json
+import re
+import math
+from collections import Counter
 
 # Logging
 logging.basicConfig(
@@ -469,7 +472,7 @@ def evaluate_batch(
     results.num_samples = targets.size(0)
     
     mask = (targets != ignore_index)
-    results.num_tokens = mask.sum().item()
+    results.num_tokens = int(mask.sum().item())
     
     # Get predictions
     # predictions shape: [B, T]
@@ -549,21 +552,262 @@ def aggregate_results(results_list: List[EvaluationResults]) -> EvaluationResult
             weighted_value = np.average(values, weights=weights)
             
             # Get metadata from first occurrence
-            first_metric = next(
-                r.get_metric(metric_name)
-                for r in results_list
-                if r.get_metric(metric_name) is not None
-            )
+            unit = ""
+            higher_is_better = True
+            for r in results_list:
+                m = r.get_metric(metric_name)
+                if m is not None:
+                    unit = m.unit
+                    higher_is_better = m.higher_is_better
+                    break
             
             aggregated.add_metric(
                 metric_name,
                 weighted_value,
-                first_metric.unit,
-                first_metric.higher_is_better,
+                unit,
+                higher_is_better,
                 {"std": float(np.std(values))}
             )
     
     return aggregated
+
+
+# =========================
+# Text Generation Metrics (BLEU & ROUGE)
+# =========================
+
+def tokenize_text(text: str) -> List[str]:
+    """
+    Metin tokenizasyonu (küçük harfe çevirip alfanümerik token'lara böler).
+    
+    Args:
+        text: Girdi metni
+        
+    Returns:
+        Token listesi
+    """
+    if not text:
+        return []
+    text = text.lower()
+    return re.findall(r'\w+', text)
+
+
+def compute_bleu(
+    prediction: str,
+    reference: Union[str, Sequence[str]],
+    max_n: int = 4
+) -> Dict[str, float]:
+    """
+    BLEU (Bilingual Evaluation Understudy) skorlarını hesaplar (BLEU-1 .. BLEU-4 ve kümülatif BLEU).
+    
+    Formül:
+        BLEU = BP * exp(sum(w_n * log(p_n)))
+        BP = min(1.0, exp(1 - r / c))
+        
+    Args:
+        prediction: Modelin ürettiği metin
+        reference: Referans metin veya referans metinler listesi
+        max_n: Maksimum n-gram mertebesi (varsayılan: 4)
+        
+    Returns:
+        Dict: {"bleu-1": float, ..., "bleu-4": float, "bleu": float} (0.0 - 100.0 aralığında)
+    """
+    if isinstance(reference, str):
+        references = [reference]
+    else:
+        references = reference
+        
+    pred_tokens = tokenize_text(prediction)
+    ref_tokens_list = [tokenize_text(ref) for ref in references if ref]
+    
+    if not pred_tokens or not ref_tokens_list:
+        res = {f"bleu-{i}": 0.0 for i in range(1, max_n + 1)}
+        res["bleu"] = 0.0
+        return res
+        
+    precisions = []
+    
+    for n in range(1, max_n + 1):
+        pred_ngrams: Counter[Tuple[str, ...]] = Counter()
+        for i in range(len(pred_tokens) - n + 1):
+            ngram = tuple(pred_tokens[i:i+n])
+            pred_ngrams[ngram] += 1
+            
+        if not pred_ngrams:
+            precisions.append(0.0)
+            continue
+            
+        max_ref_counts: Counter[Tuple[str, ...]] = Counter()
+        for ref_tokens in ref_tokens_list:
+            ref_ngrams: Counter[Tuple[str, ...]] = Counter()
+            for i in range(len(ref_tokens) - n + 1):
+                ngram = tuple(ref_tokens[i:i+n])
+                ref_ngrams[ngram] += 1
+            for ngram, count in ref_ngrams.items():
+                max_ref_counts[ngram] = max(max_ref_counts[ngram], count)
+                
+        clipped_counts = 0
+        total_counts = 0
+        for ngram, count in pred_ngrams.items():
+            clipped_counts += min(count, max_ref_counts.get(ngram, 0))
+            total_counts += count
+            
+        precision = clipped_counts / total_counts if total_counts > 0 else 0.0
+        precisions.append(precision)
+        
+    # Brevity Penalty
+    pred_len = len(pred_tokens)
+    ref_lens = [len(ref_tokens) for ref_tokens in ref_tokens_list]
+    closest_ref_len = min(ref_lens, key=lambda x: abs(x - pred_len))
+    
+    if pred_len >= closest_ref_len:
+        bp = 1.0
+    else:
+        bp = math.exp(1.0 - closest_ref_len / pred_len) if pred_len > 0 else 0.0
+        
+    bleu_scores: Dict[str, float] = {}
+    for n in range(1, max_n + 1):
+        if all(p > 0 for p in precisions[:n]):
+            log_prec = sum(math.log(p) for p in precisions[:n]) / n
+            score = bp * math.exp(log_prec)
+        else:
+            score = 0.0
+        bleu_scores[f"bleu-{n}"] = round(score * 100.0, 2)
+        
+    bleu_scores["bleu"] = bleu_scores.get(f"bleu-{min(4, max_n)}", 0.0)
+    return bleu_scores
+
+
+def compute_rouge(
+    prediction: str,
+    reference: Union[str, Sequence[str]]
+) -> Dict[str, float]:
+    """
+    ROUGE (Recall-Oriented Understudy for Gisting Evaluation) skorlarını hesaplar:
+    - ROUGE-1 (Unigram F1)
+    - ROUGE-2 (Bigram F1)
+    - ROUGE-L (Longest Common Subsequence F1)
+    
+    Args:
+        prediction: Modelin ürettiği metin
+        reference: Referans metin(ler)
+        
+    Returns:
+        Dict: {"rouge-1": float, "rouge-2": float, "rouge-l": float} (0.0 - 100.0 aralığında)
+    """
+    if isinstance(reference, str):
+        references = [reference]
+    else:
+        references = reference
+        
+    pred_tokens = tokenize_text(prediction)
+    ref_tokens_list = [tokenize_text(ref) for ref in references if ref]
+    
+    if not pred_tokens or not ref_tokens_list:
+        return {"rouge-1": 0.0, "rouge-2": 0.0, "rouge-l": 0.0}
+        
+    # ROUGE-1
+    pred_unigrams = Counter(pred_tokens)
+    rouge_1_scores = []
+    for ref_tokens in ref_tokens_list:
+        ref_unigrams = Counter(ref_tokens)
+        if not ref_unigrams:
+            continue
+        overlap = sum((pred_unigrams & ref_unigrams).values())
+        recall = overlap / len(ref_tokens) if len(ref_tokens) > 0 else 0.0
+        precision = overlap / len(pred_tokens) if len(pred_tokens) > 0 else 0.0
+        f1 = (2 * recall * precision) / (recall + precision) if (recall + precision) > 0 else 0.0
+        rouge_1_scores.append(f1)
+        
+    rouge_1 = max(rouge_1_scores) if rouge_1_scores else 0.0
+    
+    # ROUGE-2
+    pred_bigrams: Counter[Tuple[str, str]] = Counter()
+    for i in range(len(pred_tokens) - 1):
+        pred_bigrams[(pred_tokens[i], pred_tokens[i+1])] += 1
+        
+    rouge_2_scores = []
+    for ref_tokens in ref_tokens_list:
+        ref_bigrams: Counter[Tuple[str, str]] = Counter()
+        for i in range(len(ref_tokens) - 1):
+            ref_bigrams[(ref_tokens[i], ref_tokens[i+1])] += 1
+        if not ref_bigrams:
+            continue
+        overlap = sum((pred_bigrams & ref_bigrams).values())
+        total_ref_bigrams = max(len(ref_tokens) - 1, 0)
+        total_pred_bigrams = max(len(pred_tokens) - 1, 0)
+        recall = overlap / total_ref_bigrams if total_ref_bigrams > 0 else 0.0
+        precision = overlap / total_pred_bigrams if total_pred_bigrams > 0 else 0.0
+        f1 = (2 * recall * precision) / (recall + precision) if (recall + precision) > 0 else 0.0
+        rouge_2_scores.append(f1)
+        
+    rouge_2 = max(rouge_2_scores) if rouge_2_scores else 0.0
+    
+    # ROUGE-L (LCS)
+    def lcs_len(s1: List[str], s2: List[str]) -> int:
+        m, n = len(s1), len(s2)
+        dp = [0] * (n + 1)
+        for i in range(1, m + 1):
+            prev = 0
+            for j in range(1, n + 1):
+                temp = dp[j]
+                if s1[i-1] == s2[j-1]:
+                    dp[j] = prev + 1
+                else:
+                    dp[j] = max(dp[j], dp[j-1])
+                prev = temp
+        return dp[n]
+        
+    rouge_l_scores = []
+    for ref_tokens in ref_tokens_list:
+        if not ref_tokens:
+            continue
+        lcs = lcs_len(pred_tokens, ref_tokens)
+        recall = lcs / len(ref_tokens) if len(ref_tokens) > 0 else 0.0
+        precision = lcs / len(pred_tokens) if len(pred_tokens) > 0 else 0.0
+        f1 = (2 * recall * precision) / (recall + precision) if (recall + precision) > 0 else 0.0
+        rouge_l_scores.append(f1)
+        
+    rouge_l = max(rouge_l_scores) if rouge_l_scores else 0.0
+    
+    return {
+        "rouge-1": round(rouge_1 * 100.0, 2),
+        "rouge-2": round(rouge_2 * 100.0, 2),
+        "rouge-l": round(rouge_l * 100.0, 2)
+    }
+
+
+def evaluate_generation(
+    predictions: Sequence[str],
+    references: Union[Sequence[str], Sequence[Sequence[str]]]
+) -> Dict[str, float]:
+    """
+    Birden fazla tahmin ve referans için toplu BLEU ve ROUGE değerlendirmesi yapar.
+    
+    Args:
+        predictions: Model tahminleri
+        references: Doğru referans metinler
+        
+    Returns:
+        Dict: Ortalama metrik sonuçları
+    """
+    if not predictions or not references or len(predictions) != len(references):
+        return {
+            "bleu-1": 0.0, "bleu-2": 0.0, "bleu-3": 0.0, "bleu-4": 0.0,
+            "bleu": 0.0, "rouge-1": 0.0, "rouge-2": 0.0, "rouge-l": 0.0
+        }
+        
+    all_bleu = [compute_bleu(p, r) for p, r in zip(predictions, references)]
+    all_rouge = [compute_rouge(p, r) for p, r in zip(predictions, references)]
+    
+    n = len(predictions)
+    summary: Dict[str, float] = {}
+    for key in ["bleu-1", "bleu-2", "bleu-3", "bleu-4", "bleu"]:
+        summary[key] = round(sum(b[key] for b in all_bleu) / n, 2)
+    for key in ["rouge-1", "rouge-2", "rouge-l"]:
+        summary[key] = round(sum(r[key] for r in all_rouge) / n, 2)
+        
+    return summary
 
 
 # =========================

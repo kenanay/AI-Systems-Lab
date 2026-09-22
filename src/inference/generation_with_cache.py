@@ -20,7 +20,7 @@ Usage:
 
 import torch
 import torch.nn as nn
-from typing import Optional, Tuple, Callable
+from typing import Optional, Tuple, Callable, Dict, Any
 import time
 import logging
 
@@ -87,17 +87,17 @@ def generate_text_with_cache(
     cache = None
     if use_cache:
         # Check if model has KV cache support
-        if not hasattr(model, 'config'):
+        config = getattr(model, 'config', None)
+        if config is None:
             logger.warning("Model doesn't have config, cache disabled")
             use_cache = False
         else:
-            config = model.config
             cache_config = KVCacheConfig(
                 max_batch_size=batch_size,
                 max_seq_len=prompt_len + max_new_tokens,
-                n_layers=config.n_layers,
-                n_heads=config.n_heads,
-                d_k=config.d_k,
+                n_layers=int(getattr(config, 'n_layers', 6)),
+                n_heads=int(getattr(config, 'n_heads', 8)),
+                d_k=int(getattr(config, 'd_k', 64)),
                 dtype=torch.float32,
                 device=str(device)
             )
@@ -118,7 +118,8 @@ def generate_text_with_cache(
     done = torch.zeros(batch_size, dtype=torch.bool, device=device)
     
     # Get model's max sequence length
-    max_seq_len = model.config.max_seq_len if hasattr(model, 'config') else 512
+    config = getattr(model, 'config', None)
+    max_seq_len: int = int(getattr(config, 'max_seq_len', 512)) if config is not None else 512
     
     start_time = time.time()
     
@@ -240,6 +241,7 @@ def benchmark_generation(
     
     # Benchmark without cache
     no_cache_times = []
+    stats: Dict[str, Any] = {'tokens_generated': 0, 'prompt_len': 0}
     for run in range(num_runs):
         _, stats = generate_text_with_cache(
             model, input_ids,

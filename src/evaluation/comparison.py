@@ -244,9 +244,9 @@ class MetricComparison:
         }
         
         if higher_is_better:
-            self.winner = max(mean_scores, key=mean_scores.get)
+            self.winner = max(mean_scores, key=lambda k: float(mean_scores[k]))
         else:
-            self.winner = min(mean_scores, key=mean_scores.get)
+            self.winner = min(mean_scores, key=lambda k: float(mean_scores[k]))
         
         # Pairwise comparisons
         model_names = list(self.model_scores.keys())
@@ -326,7 +326,7 @@ class ComparisonReport:
                 win_counts[comparison.winner] += 1
         
         # Model with most wins
-        self.overall_winner = max(win_counts, key=win_counts.get)
+        self.overall_winner = max(win_counts, key=lambda k: win_counts[k]) if win_counts else None
     
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -575,7 +575,9 @@ def main():
             model: np.mean(scores)
             for model, scores in comp.model_scores.items()
         }
-        print(f"  {metric_name}: {comp.winner} ({mean_scores[comp.winner]:.4f})")
+        winner_str = str(comp.winner)
+        winner_score = f"{mean_scores[comp.winner]:.4f}" if comp.winner and comp.winner in mean_scores else "N/A"
+        print(f"  {metric_name}: {winner_str} ({winner_score})")
     
     # Pairwise comparison
     print("\n" + "-" * 80)

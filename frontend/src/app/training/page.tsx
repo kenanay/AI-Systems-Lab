@@ -87,6 +87,32 @@ export default function TrainingPage() {
     }
   }, [datasets, tokenizers, datasetId, tokenizerId]);
 
+  // Read URL query parameters (e.g. redirected from Dataset Compiler)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlDatasetId = params.get('dataset_id');
+      const urlDatasetName = params.get('dataset_name');
+      const urlJobType = params.get('job_type');
+      const urlModelName = params.get('model_name');
+
+      if (urlDatasetId) {
+        setDatasetId(urlDatasetId);
+      }
+      if (urlDatasetName) {
+        setJobName(`Eğitim - ${urlDatasetName}`);
+        const safeModel = urlDatasetName.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+        setModelName(`${safeModel}-gpt`);
+      }
+      if (urlJobType === 'SFT_LORA' || urlJobType === 'PRETRAIN') {
+        setJobType(urlJobType);
+      }
+      if (urlModelName) {
+        setModelName(urlModelName);
+      }
+    }
+  }, []);
+
   // Mutations
   const startMutation = useMutation({
     mutationFn: (data: StartTrainingRequest) => api.training.start(data),
@@ -523,20 +549,32 @@ export default function TrainingPage() {
 
                 {/* Checkpoint / Kayıt Bilgisi */}
                 {activeJob.status === 'COMPLETED' && (
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-center space-x-3">
-                      <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                      <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
                       <div>
                         <p className="text-sm font-bold text-emerald-900">Model Eğitimi Tamamlandı!</p>
-                        <p className="text-xs text-emerald-700">Model Registry'ye kaydedildi.</p>
+                        <p className="text-xs text-emerald-700">
+                          Model Registry&apos;ye kaydedildi ({activeJob.model_name}).
+                        </p>
                       </div>
                     </div>
-                    <Link
-                      href="/playground"
-                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition"
-                    >
-                      Playground'da Test Et →
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        id="test-in-playground-btn"
+                        href={`/playground?model=${encodeURIComponent(activeJob.model_name)}`}
+                        className="px-3.5 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition shadow-sm inline-flex items-center gap-1.5"
+                      >
+                        🎮 Playground&apos;da Test Et ➔
+                      </Link>
+                      <Link
+                        id="evaluate-model-btn"
+                        href={`/evaluation?model=${encodeURIComponent(activeJob.model_name)}`}
+                        className="px-3.5 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition shadow-sm inline-flex items-center gap-1.5"
+                      >
+                        📊 Benchmark &amp; Değerlendir ➔
+                      </Link>
+                    </div>
                   </div>
                 )}
               </div>

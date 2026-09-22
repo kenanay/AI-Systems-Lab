@@ -29,48 +29,48 @@ class FileRecord(Base):
     __tablename__ = "files"
     
     # Primary Key
-    file_id = Column(String(50), primary_key=True, index=True)
+    file_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
     
     # File Information
-    original_name = Column(String(255), nullable=False)
-    relative_path = Column(String(500), nullable=False)  # datasets/raw/ içinde path
-    mime_type = Column(String(100), nullable=False)
-    size_bytes = Column(Integer, nullable=False)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    relative_path: Mapped[str] = mapped_column(String(500), nullable=False)  # datasets/raw/ içinde path
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     
     # Hash and Integrity
-    sha256 = Column(String(64), unique=True, nullable=False, index=True)
+    sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     
     # Processing Information
-    parser_name = Column(String(100))  # Hangi parser kullanıldı
-    parser_version = Column(String(20))  # Parser versiyonu
-    schema_version = Column(String(20), default="1.0.0")  # Data schema versiyonu
+    parser_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Hangi parser kullanıldı
+    parser_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # Parser versiyonu
+    schema_version: Mapped[str] = mapped_column(String(20), default="1.0.0")  # Data schema versiyonu
     
     # Security and Privacy
-    security_level = Column(
+    security_level: Mapped[str] = mapped_column(
         String(20),
         default="INTERNAL"
     )  # PUBLIC, INTERNAL, RESTRICTED, PERSONAL
-    pii_detected = Column(Boolean, default=False)  # PII var mı?
-    license = Column(String(100))  # Lisans bilgisi
-    copyright_status = Column(String(100))  # Telif durumu
-    training_allowed = Column(Boolean, default=False)  # Eğitimde kullanılabilir mi?
+    pii_detected: Mapped[bool] = mapped_column(Boolean, default=False)  # PII var mı?
+    license: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Lisans bilgisi
+    copyright_status: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Telif durumu
+    training_allowed: Mapped[bool] = mapped_column(Boolean, default=False)  # Eğitimde kullanılabilir mi?
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    modified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=utc_now, onupdate=utc_now, nullable=True)
     
     # Dataset Version
-    dataset_version = Column(String(20))  # Hangi dataset versiyonuna ait
+    dataset_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # Hangi dataset versiyonuna ait
     
     # Source Information
-    source = Column(String(255))  # Dosya kaynağı
-    language = Column(String(10))  # Ana dil (tr, en, etc.)
+    source: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Dosya kaynağı
+    language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # Ana dil (tr, en, etc.)
     
     # Quality
-    quality_score = Column(Float)  # 0.0-1.0 arası kalite skoru
+    quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 0.0-1.0 arası kalite skoru
     
     # Relationships
-    documents = relationship("DocumentRecord", back_populates="file", cascade="all, delete-orphan")
+    documents: Mapped[List["DocumentRecord"]] = relationship("DocumentRecord", back_populates="file", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         return f"<FileRecord(file_id={self.file_id}, name={self.original_name})>"
@@ -86,36 +86,36 @@ class DocumentRecord(Base):
     __tablename__ = "documents"
     
     # Primary Key
-    document_id = Column(String(50), primary_key=True, index=True)
+    document_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
     
     # Foreign Key
-    file_id = Column(String(50), ForeignKey("files.file_id"), nullable=False, index=True)
+    file_id: Mapped[str] = mapped_column(String(50), ForeignKey("files.file_id"), nullable=False, index=True)
     
     # Content
-    title = Column(String(500))  # Doküman başlığı
-    text = Column(Text, nullable=False)  # Ana metin içeriği
+    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Doküman başlığı
+    text: Mapped[str] = mapped_column(Text, nullable=False)  # Ana metin içeriği
     
     # Metadata
-    language = Column(String(10))  # Dil
-    char_count = Column(Integer)  # Karakter sayısı
-    word_count = Column(Integer)  # Kelime sayısı
-    line_count = Column(Integer)  # Satır sayısı
+    language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # Dil
+    char_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Karakter sayısı
+    word_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Kelime sayısı
+    line_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Satır sayısı
     
     # Processing Info
-    parser_name = Column(String(100))
-    parser_version = Column(String(20))
-    schema_version = Column(String(20), default="1.0.0")
+    parser_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    parser_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    schema_version: Mapped[str] = mapped_column(String(20), default="1.0.0")
     
     # Quality Indicators
-    is_empty = Column(Boolean, default=False)  # Boş mu?
-    is_duplicate = Column(Boolean, default=False)  # Duplicate mı?
-    quality_score = Column(Float)  # Kalite skoru
+    is_empty: Mapped[bool] = mapped_column(Boolean, default=False)  # Boş mu?
+    is_duplicate: Mapped[bool] = mapped_column(Boolean, default=False)  # Duplicate mı?
+    quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Kalite skoru
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     
     # Relationships
-    file = relationship("FileRecord", back_populates="documents")
+    file: Mapped["FileRecord"] = relationship("FileRecord", back_populates="documents")
     
     def __repr__(self) -> str:
         return f"<DocumentRecord(document_id={self.document_id}, title={self.title})>"
@@ -130,31 +130,31 @@ class ProcessingJob(Base):
     __tablename__ = "processing_jobs"
     
     # Primary Key
-    job_id = Column(String(50), primary_key=True, index=True)
+    job_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
     
     # Job Information
-    job_type = Column(String(50), nullable=False)  # "ingestion", "tokenizer_training", etc.
-    status = Column(
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # "ingestion", "tokenizer_training", etc.
+    status: Mapped[str] = mapped_column(
         String(20),
         default="PENDING"
     )  # PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
     
     # Progress
-    progress = Column(Float, default=0.0)  # 0.0-1.0
-    total_items = Column(Integer)  # Toplam işlenecek item
-    processed_items = Column(Integer, default=0)  # İşlenen item sayısı
+    progress: Mapped[float] = mapped_column(Float, default=0.0)  # 0.0-1.0
+    total_items: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Toplam işlenecek item
+    processed_items: Mapped[int] = mapped_column(Integer, default=0)  # İşlenen item sayısı
     
     # Error Information
-    error_message = Column(Text)
-    error_traceback = Column(Text)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_traceback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     # Job Metadata (JSON olarak saklanabilir)
-    job_metadata = Column(Text)  # JSON string
+    job_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON string
     
     def __repr__(self) -> str:
         return f"<ProcessingJob(job_id={self.job_id}, type={self.job_type}, status={self.status})>"
@@ -179,43 +179,28 @@ class TokenizerJob(Base):
     __tablename__ = "tokenizer_jobs"
     
     # Primary Key
-    job_id = Column(String(50), primary_key=True, index=True, default=lambda: str(uuid.uuid4())[:8].upper())
+    job_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True, default=lambda: str(uuid.uuid4())[:8].upper())
     
     # Job Information
-    job_name = Column(String(255), nullable=False)
-    status = Column(String(20), default="PENDING", nullable=False, index=True)
+    job_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False, index=True)
     
     # Configuration (JSON)
-    # {
-    #   "dataset_ids": ["DS-XXX", ...],
-    #   "file_ids": ["FILE-XXX", ...],
-    #   "vocab_size": 8000,
-    #   "min_frequency": 2,
-    #   "special_tokens": ["<PAD>", "<UNK>", "<BOS>", "<EOS>"]
-    # }
-    config = Column(JSON, nullable=False)
+    config: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
     
     # Progress (0.0 - 1.0)
-    progress = Column(Float, default=0.0)
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
     
     # Result Metadata (JSON) - Training sonuçları
-    # {
-    #   "tokenizer_id": "TOK-XXX",
-    #   "vocab_size": 8000,
-    #   "num_merges": 7500,
-    #   "num_documents": 1000,
-    #   "training_duration_seconds": 45.2,
-    #   "output_path": "/path/to/tokenizer"
-    # }
-    result_metadata = Column(JSON)
+    result_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     # Error Information
-    error = Column(Text)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     def __repr__(self) -> str:
         return f"<TokenizerJob(job_id={self.job_id}, name={self.job_name}, status={self.status})>"
@@ -236,57 +221,56 @@ class TokenizerRecord(Base):
     __tablename__ = "tokenizers"
     
     # Primary Key
-    tokenizer_id = Column(String(50), primary_key=True, index=True)
+    tokenizer_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
     
     # Tokenizer Information
-    name = Column(String(255), nullable=False)
-    tokenizer_type = Column(String(50), default="BPE", nullable=False)  # BPE, WordPiece, etc.
-    version = Column(String(20), default="1.0.0")
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    tokenizer_type: Mapped[str] = mapped_column(String(50), default="BPE", nullable=False)  # BPE, WordPiece, etc.
+    version: Mapped[str] = mapped_column(String(20), default="1.0.0")
     
     # Vocabulary Stats
-    vocab_size = Column(Integer, nullable=False)
-    num_merges = Column(Integer)  # BPE için merge count
+    vocab_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    num_merges: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # BPE için merge count
     
     # Special Tokens
-    special_tokens = Column(JSON)  # ["<PAD>", "<UNK>", "<BOS>", "<EOS>"]
+    special_tokens: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # ["<PAD>", "<UNK>", "<BOS>", "<EOS>"]
     
     # Storage
-    storage_path = Column(String(500), nullable=False)  # Vocab files'ın yolu
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)  # Vocab files'ın yolu
     
     # Training Configuration
-    training_config = Column(JSON)  # Training parameters
-    # {
-    #   "vocab_size": 8000,
-    #   "min_frequency": 2,
-    #   "dataset_ids": [...],
-    #   "file_ids": [...]
-    # }
+    training_config: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)  # Training parameters
     
     # Data Lineage
-    source_job_id = Column(String(50), ForeignKey("tokenizer_jobs.job_id"))  # Training job
-    source_dataset_ids = Column(JSON)  # Kullanılan dataset'ler
-    source_file_ids = Column(JSON)  # Kullanılan file'lar
-    num_training_documents = Column(Integer)  # Training'de kullanılan doküman sayısı
+    source_job_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("tokenizer_jobs.job_id"), nullable=True)  # Training job
+    source_dataset_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # Kullanılan dataset'ler
+    source_file_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # Kullanılan file'lar
+    num_training_documents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Training'de kullanılan doküman sayısı
     
     # Training Stats
-    training_duration_seconds = Column(Float)
-    training_completed_at = Column(DateTime)
+    training_duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    training_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     # Usage Stats
-    usage_count = Column(Integer, default=0)  # Kaç kez kullanıldı
-    last_used_at = Column(DateTime)
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)  # Kaç kez kullanıldı
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     # Status
-    is_active = Column(Boolean, default=True)  # Aktif mi?
-    is_deprecated = Column(Boolean, default=False)  # Deprecated mi?
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # Aktif mi?
+    is_deprecated: Mapped[bool] = mapped_column(Boolean, default=False)  # Deprecated mi?
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=utc_now, onupdate=utc_now, nullable=True)
     
     # Metadata
-    description = Column(Text)  # Tokenizer açıklaması
-    tags = Column(JSON)  # ["turkish", "general", "v1"]
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Tokenizer açıklaması
+    tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # ["turkish", "general", "v1"]
+    
+    @property
+    def model_path(self) -> str:
+        """Alias for storage_path for backward compatibility."""
+        return str(getattr(self, "storage_path", "") or "")
     
     def __repr__(self) -> str:
         return f"<TokenizerRecord(tokenizer_id={self.tokenizer_id}, name={self.name}, vocab_size={self.vocab_size})>"
@@ -314,70 +298,52 @@ class DatasetVersion(Base):
     __tablename__ = "dataset_versions"
     
     # Primary Key
-    dataset_id = Column(String(50), primary_key=True, index=True, default=lambda: f"DS-{str(uuid.uuid4())[:8].upper()}")
+    dataset_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True, default=lambda: f"DS-{str(uuid.uuid4())[:8].upper()}")
     
     # Dataset Information
-    name = Column(String(255), nullable=False)
-    version = Column(String(20), nullable=False)  # Semantic versioning: "1.0.0"
-    description = Column(Text)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    version: Mapped[str] = mapped_column(String(20), nullable=False)  # Semantic versioning: "1.0.0"
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Schema & Compiler
-    schema_version = Column(String(20), default="1.0.0", nullable=False)
-    compiler_version = Column(String(20), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(20), default="1.0.0", nullable=False)
+    compiler_version: Mapped[str] = mapped_column(String(20), nullable=False)
     
     # Storage
-    storage_path = Column(String(500), nullable=False)  # Parquet file path
-    metadata_path = Column(String(500))  # metadata.json path
-    file_size_bytes = Column(Integer)
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)  # Parquet file path
+    metadata_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # metadata.json path
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     
     # Data Lineage
-    source_document_ids = Column(JSON)  # ["DOC-XXX", ...]
-    source_file_ids = Column(JSON)  # ["FILE-XXX", ...]
-    tokenizer_id = Column(String(50), ForeignKey("tokenizers.tokenizer_id"))
+    source_document_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # ["DOC-XXX", ...]
+    source_file_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # ["FILE-XXX", ...]
+    tokenizer_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("tokenizers.tokenizer_id"), nullable=True)
     
     # Compilation Job Reference
-    compilation_job_id = Column(String(50))  # Job that created this dataset
+    compilation_job_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Job that created this dataset
     
     # Statistics
-    num_documents = Column(Integer, nullable=False)
-    total_tokens = Column(Integer)
-    total_chars = Column(Integer)
+    num_documents: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_chars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     
     # Compilation Parameters (JSON)
-    # {
-    #   "min_quality_score": 0.5,
-    #   "max_quality_score": 1.0,
-    #   "min_length": 10,
-    #   "max_length": 100000,
-    #   "allow_pii": false,
-    #   "require_training_allowed": true,
-    #   "remove_duplicates": true
-    # }
-    compilation_params = Column(JSON)
+    compilation_params: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     # Filter Statistics (JSON)
-    # {
-    #   "total_documents": 1000,
-    #   "filtered_by_quality": 50,
-    #   "filtered_by_license": 20,
-    #   "filtered_by_pii": 10,
-    #   "filtered_by_length": 30,
-    #   "duplicates_removed": 40,
-    #   "final_count": 850
-    # }
-    filter_stats = Column(JSON)
+    filter_stats: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     # Status
-    is_active = Column(Boolean, default=True)  # Aktif mi?
-    is_snapshot = Column(Boolean, default=False)  # Snapshot mi yoksa draft mi?
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # Aktif mi?
+    is_snapshot: Mapped[bool] = mapped_column(Boolean, default=False)  # Snapshot mi yoksa draft mi?
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    compiled_at = Column(DateTime)  # Compilation tamamlanma zamanı
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    compiled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # Compilation tamamlanma zamanı
     
     # Tags & Metadata
-    tags = Column(JSON)  # ["turkish", "general", "v1"]
-    custom_metadata = Column(JSON)  # Kullanıcı tanımlı metadata
+    tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)  # ["turkish", "general", "v1"]
+    custom_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)  # Kullanıcı tanımlı metadata
     
     def __repr__(self) -> str:
         return f"<DatasetVersion(dataset_id={self.dataset_id}, name={self.name}, version={self.version})>"
@@ -399,40 +365,28 @@ class CompilationJob(Base):
     __tablename__ = "compilation_jobs"
     
     # Primary Key
-    job_id = Column(String(50), primary_key=True, index=True, default=lambda: str(uuid.uuid4())[:8].upper())
+    job_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True, default=lambda: str(uuid.uuid4())[:8].upper())
     
     # Job Information
-    job_name = Column(String(255), nullable=False)
-    status = Column(String(20), default="PENDING", nullable=False, index=True)
+    job_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False, index=True)
     
     # Configuration (JSON)
-    # {
-    #   "document_ids": ["DOC-XXX", ...],
-    #   "tokenizer_id": "TOK-XXX",
-    #   "dataset_name": "Training Dataset v1",
-    #   "dataset_version": "1.0.0",
-    #   "compilation_params": {...}
-    # }
-    config = Column(JSON, nullable=False)
+    config: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
     
     # Progress (0.0 - 1.0)
-    progress = Column(Float, default=0.0)
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
     
     # Result Metadata (JSON) - Compilation sonuçları
-    # {
-    #   "dataset_id": "DS-XXX",
-    #   "output_path": "/path/to/dataset",
-    #   "stats": {...}
-    # }
-    result_metadata = Column(JSON)
+    result_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     # Error Information
-    error = Column(Text)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     def __repr__(self) -> str:
         return f"<CompilationJob(job_id={self.job_id}, name={self.job_name}, status={self.status})>"
@@ -505,11 +459,51 @@ class TrainingJob(Base):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "error": str(self.error) if self.error else None,
+            "best_checkpoint": str(self.best_checkpoint) if self.best_checkpoint else None,
             "metrics": list(metrics_val or [])
         }
 
     def __repr__(self) -> str:
         return f"<TrainingJob(job_id={self.job_id}, name={self.job_name}, type={self.job_type}, status={self.status})>"
+
+
+class BenchmarkRecord(Base):
+    """
+    Model Benchmark & Evaluation Sonuç Kaydı.
+    
+    Perplexity, BLEU, ROUGE ve Accuracy değerlendirme sonuçlarını kalıcı olarak saklar.
+    """
+    __tablename__ = "benchmark_results"
+    
+    benchmark_id: Mapped[str] = mapped_column(
+        String(50), primary_key=True, index=True, default=lambda: f"BENCH-{uuid.uuid4().hex[:8].upper()}"
+    )
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    benchmark_name: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    metrics: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    samples_evaluated: Mapped[int] = mapped_column(Integer, default=0)
+    dataset_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert benchmark record to dictionary with concrete types."""
+        ds_path = getattr(self, "dataset_path", None)
+        c_at = getattr(self, "created_at", None)
+        c_at_str = c_at.isoformat() if isinstance(c_at, datetime) else str(c_at or "")
+        return {
+            "benchmark_id": str(getattr(self, "benchmark_id", "")),
+            "model_name": str(getattr(self, "model_name", "")),
+            "benchmark_name": str(getattr(self, "benchmark_name", "")),
+            "score": float(getattr(self, "score", 0.0)),
+            "metrics": dict(getattr(self, "metrics", {}) or {}),
+            "samples_evaluated": int(getattr(self, "samples_evaluated", 0)),
+            "dataset_path": str(ds_path) if ds_path else None,
+            "created_at": c_at_str,
+        }
+
+    def __repr__(self) -> str:
+        return f"<BenchmarkRecord(id={self.benchmark_id}, model={self.model_name}, bench={self.benchmark_name}, score={self.score})>"
 
 
 # Type alias for model imports

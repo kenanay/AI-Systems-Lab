@@ -60,6 +60,7 @@ def list_models(
                 "tags": m.tags,
                 "created_at": m.created_at,
                 "environment": m.environment,
+                "model_hash": m.model_hash,
                 "file_size_mb": m.file_size_mb
             })
         return result
@@ -91,11 +92,34 @@ def get_model(
             "tokenizer_info": meta.tokenizer_info,
             "tags": meta.tags,
             "created_at": meta.created_at,
+            "model_hash": meta.model_hash,
             "checkpoint_path": str(model_info.get("checkpoint_path", ""))
         }
     except Exception as e:
         logger.error(f"Error getting model {model_name}: {e}")
         raise HTTPException(status_code=404, detail=f"Model bulunamadı: {e}")
+
+
+@router.post("/{model_name}/verify", response_model=Dict[str, Any])
+def verify_model(
+    model_name: str,
+    version: Optional[str] = Query(None, description="Doğrulanacak versiyon (varsayılan: en son)")
+) -> Dict[str, Any]:
+    """
+    Model checkpoint dosyasının SHA-256 bütünlüğünü ve imzasını doğrular.
+    Diskteki dosya hash'i ile kayıtlı model_hash'i karşılaştırır.
+    """
+    registry = ModelRegistry(registry_dir="models")
+    try:
+        result = registry.verify_model(model_name=model_name, version=version)
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
+    except Exception as e:
+        logger.error(f"Error verifying model {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{model_name}")
@@ -114,8 +138,11 @@ def delete_model(
             raise HTTPException(status_code=404, detail="Model bulunamadı")
         
         # Delete model from registry
-        registry.delete_model(model_name, version=None)
-        return {"status": "success", "message": f"{model_name} başarıyla kaldırıldı"}
+        registry.delete_model(model_name, version=version)
+        target = f"{model_name} v{version}" if version else model_name
+        return {"status": "success", "message": f"{target} başarıyla kaldırıldı"}
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:

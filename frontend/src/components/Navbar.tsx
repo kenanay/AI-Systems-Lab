@@ -6,12 +6,24 @@ import { useState, useEffect } from 'react';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Ana Sayfa', icon: '🏠' },
+  { href: '/journey', label: 'Öğrenme Yolu', icon: '🗺️' },
   { href: '/dataset-explorer', label: 'Explorer', icon: '📚' },
   { href: '/upload', label: 'Upload', icon: '⬆️' },
   { href: '/tokenizer', label: 'Tokenizer', icon: '🔤' },
   { href: '/dataset-compiler', label: 'Compiler', icon: '⚙️' },
   { href: '/training', label: 'Training', icon: '🏋️' },
+  { href: '/models', label: 'Modeller', icon: '📦' },
   { href: '/playground', label: 'Playground', icon: '💬' },
+  { href: '/attention-lab', label: 'Attention Lab', icon: '👁️' },
+  { href: '/embedding-lab', label: 'Embedding Lab', icon: '🎯' },
+  { href: '/rag-lab', label: 'RAG Lab', icon: '🔍' },
+  { href: '/math-lab', label: 'Math Lab', icon: '📐' },
+  { href: '/tensor-lab', label: 'Tensor Lab', icon: '🧮' },
+  { href: '/nn-lab', label: 'NN Lab', icon: '🧠' },
+  { href: '/transformer-lab', label: 'Transformer Lab', icon: '🏛️' },
+  { href: '/evaluation', label: 'Evaluation Lab', icon: '📊' },
+  { href: '/systems-lab', label: 'Systems Lab', icon: '⚡' },
+  { href: '/synthetic-lab', label: 'Synthetic Lab', icon: '🧪' },
 ];
 
 export function Navbar() {

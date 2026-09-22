@@ -117,7 +117,7 @@ class TrainingLogger:
         self.history: List[MetricEntry] = []
         
         # Run metadata
-        self.metadata = {
+        self.metadata: Dict[str, Any] = {
             'experiment_name': experiment_name,
             'start_time': datetime.now().isoformat(),
             'log_dir': str(log_dir)

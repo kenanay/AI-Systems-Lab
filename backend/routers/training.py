@@ -73,6 +73,7 @@ class TrainingJobResponse(BaseModel):
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     error: Optional[str] = None
+    best_checkpoint: Optional[str] = None
     metrics: List[Dict[str, Any]] = []
 
 

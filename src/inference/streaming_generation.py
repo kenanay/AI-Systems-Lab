@@ -110,7 +110,8 @@ def stream_generate(
     done = torch.zeros(batch_size, dtype=torch.bool, device=device)
     
     # Get model's max sequence length
-    max_seq_len = model.config.max_seq_len if hasattr(model, 'config') else 512
+    config = getattr(model, 'config', None)
+    max_seq_len: int = int(getattr(config, 'max_seq_len', 512)) if config is not None else 512
     
     logger.debug(f"Starting streaming generation: max_new_tokens={max_new_tokens}")
     
@@ -150,7 +151,7 @@ def stream_generate(
             input_ids = torch.cat([input_ids, next_token.unsqueeze(-1)], dim=-1)
             
             # Extract token ID for yielding (first batch element)
-            token_id = next_token[0].item()
+            token_id = int(next_token[0].item())
             
             # Yield token and current sequence
             yield token_id, input_ids.clone()

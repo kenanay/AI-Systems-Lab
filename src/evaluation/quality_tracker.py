@@ -394,7 +394,7 @@ class QualityTracker:
                         metric_name=metric.name,
                         message="New best value achieved",
                         current_value=metric.value,
-                        best_value=history.best_value,
+                        best_value=float(history.best_value) if history.best_value is not None else 0.0,
                         degradation_pct=0.0
                     )
                     new_alerts.append(improvement_alert)
@@ -476,6 +476,9 @@ class QualityTracker:
         Args:
             epoch: Current epoch
         """
+        if self.tracking_dir is None:
+            return
+            
         checkpoint_data = {
             "epoch": epoch,
             "timestamp": datetime.now().isoformat(),

@@ -61,6 +61,16 @@ class SemanticVersion:
         if not isinstance(other, SemanticVersion):
             raise TypeError("Cannot compare SemanticVersion with non-SemanticVersion")
         return (self.major, self.minor, self.patch) > (other.major, other.minor, other.patch)
+
+    def __ge__(self, other) -> bool:
+        if not isinstance(other, SemanticVersion):
+            raise TypeError("Cannot compare SemanticVersion with non-SemanticVersion")
+        return (self.major, self.minor, self.patch) >= (other.major, other.minor, other.patch)
+
+    def __le__(self, other) -> bool:
+        if not isinstance(other, SemanticVersion):
+            raise TypeError("Cannot compare SemanticVersion with non-SemanticVersion")
+        return (self.major, self.minor, self.patch) <= (other.major, other.minor, other.patch)
     
     def bump(self, bump_type: VersionBump) -> "SemanticVersion":
         """

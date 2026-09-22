@@ -5,9 +5,11 @@ Parse edilmiş metni normalize etme ve temizleme.
 """
 
 import re
-from typing import Optional
+from typing import Optional, Literal
 import unicodedata
 import logging
+
+NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ class TextNormalizer:
     
     def __init__(
         self,
-        unicode_form: str = "NFC",
+        unicode_form: NormalizationForm = "NFC",
         normalize_whitespace: bool = True,
         remove_control_chars: bool = True,
         preserve_paragraphs: bool = True
@@ -38,7 +40,7 @@ class TextNormalizer:
             remove_control_chars: Kontrol karakterlerini kaldır
             preserve_paragraphs: Paragraph break'leri koru
         """
-        self.unicode_form = unicode_form
+        self.unicode_form: NormalizationForm = unicode_form
         self.normalize_whitespace = normalize_whitespace
         self.remove_control_chars = remove_control_chars
         self.preserve_paragraphs = preserve_paragraphs
