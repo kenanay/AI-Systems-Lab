@@ -63,6 +63,8 @@ class GPTConfig:
     activation: str = 'gelu'
     use_gated_ffn: bool = False
     tie_embeddings: bool = True
+    use_sdpa: bool = True
+    gradient_checkpointing: bool = False
     
     def __post_init__(self):
         """Validate configuration."""
@@ -92,6 +94,8 @@ class GPTConfig:
             'activation': self.activation,
             'use_gated_ffn': self.use_gated_ffn,
             'tie_embeddings': self.tie_embeddings,
+            'use_sdpa': self.use_sdpa,
+            'gradient_checkpointing': self.gradient_checkpointing,
         }
 
 
@@ -141,7 +145,9 @@ class GPTModel(nn.Module):
             d_ff=config.d_ff,
             dropout=config.dropout,
             activation=config.activation,
-            use_gated_ffn=config.use_gated_ffn
+            use_gated_ffn=config.use_gated_ffn,
+            use_sdpa=config.use_sdpa,
+            gradient_checkpointing=config.gradient_checkpointing,
         )
         
         # Output projection: d_model → vocab_size
@@ -164,6 +170,16 @@ class GPTModel(nn.Module):
             f"{config.d_model} dim, {config.n_heads} heads, "
             f"{n_params:,} parameters"
         )
+    
+    def gradient_checkpointing_enable(self):
+        """Enable gradient checkpointing for memory-efficient training."""
+        self.config.gradient_checkpointing = True
+        self.decoder.gradient_checkpointing_enable()
+
+    def gradient_checkpointing_disable(self):
+        """Disable gradient checkpointing."""
+        self.config.gradient_checkpointing = False
+        self.decoder.gradient_checkpointing_disable()
     
     def _init_weights(self):
         """
@@ -196,7 +212,8 @@ class GPTModel(nn.Module):
     def forward(
         self,
         token_ids: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
+        need_weights: Optional[bool] = None,
     ) -> Tuple[torch.Tensor, list]:
         """
         GPT forward pass.
@@ -205,11 +222,14 @@ class GPTModel(nn.Module):
             token_ids: Input token IDs, shape [B, T]
             mask: Causal attention mask, shape [1, 1, T, T]
                   If None, created automatically
+            need_weights: Whether to compute and return explicit attention weights.
+                          Defaults to False when SDPA is enabled (or during training),
+                          and True when use_sdpa is disabled.
         
         Returns:
             logits: Output logits, shape [B, T, V]
             attention_weights: List of attention weights from each layer
-                              Each: [B, H, T, T]
+                              Each: [B, H, T, T] or None
         
         Pipeline:
             Token IDs [B, T]
@@ -233,10 +253,18 @@ class GPTModel(nn.Module):
             f"Sequence length {seq_len} exceeds max_seq_len {self.max_seq_len}"
         )
         
-        # Create causal mask if not provided
+        # Determine whether explicit weights are needed
+        if need_weights is None:
+            need_weights = False if (self.config.use_sdpa or self.training) else True
+
+        is_causal = False
         if mask is None:
-            # mask shape: [1, 1, T, T]
-            mask = create_causal_mask(seq_len, token_ids.device)
+            if self.config.use_sdpa and not need_weights:
+                # Fast path: use hardware causal flag, avoiding allocating mask tensor
+                is_causal = True
+                mask = None
+            else:
+                mask = create_causal_mask(seq_len, token_ids.device)
         
         # Step 1: Token + Positional Embeddings
         # embeddings shape: [B, T, D]
@@ -244,8 +272,13 @@ class GPTModel(nn.Module):
         
         # Step 2: Transformer Decoder
         # decoder_output shape: [B, T, D]
-        # attention_weights: List of [B, H, T, T], length = n_layers
-        decoder_output, attention_weights = self.decoder(embeddings, mask)
+        # attention_weights: List of [B, H, T, T] or None, length = n_layers
+        decoder_output, attention_weights = self.decoder(
+            embeddings,
+            mask=mask,
+            need_weights=need_weights,
+            is_causal=is_causal
+        )
         
         # Step 3: Output Projection
         # decoder_output shape: [B, T, D]
@@ -300,9 +333,9 @@ class GPTModel(nn.Module):
                 else:
                     input_ids = generated
                 
-                # Forward pass
+                # Forward pass (fast SDPA without weights)
                 # logits shape: [B, T, V]
-                logits, _ = self.forward(input_ids)
+                logits, _ = self.forward(input_ids, need_weights=False)
                 
                 # Get logits for last position
                 # next_token_logits shape: [B, V]
@@ -448,7 +481,7 @@ if __name__ == "__main__":
     token_ids = torch.randint(0, config.vocab_size, (batch_size, seq_len))
     print(f"  Input token_ids shape: {token_ids.shape}")
     
-    logits, attention_weights = model(token_ids)
+    logits, attention_weights = model(token_ids, need_weights=True)
     
     print(f"  Output logits shape: {logits.shape}")
     print(f"  Number of attention weight tensors: {len(attention_weights)}")

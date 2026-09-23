@@ -20,7 +20,8 @@ Layer Normalization her sub-layer'dan sonra uygulanır.
 
 import torch
 import torch.nn as nn
-from typing import Optional, Tuple
+import torch.utils.checkpoint
+from typing import Optional, Tuple, List
 import logging
 
 from src.model.attention import MultiHeadAttention, create_attention_layer
@@ -67,19 +68,22 @@ class TransformerDecoderBlock(nn.Module):
         d_ff: int,
         dropout: float = 0.1,
         activation: str = 'gelu',
-        use_gated_ffn: bool = False
+        use_gated_ffn: bool = False,
+        use_sdpa: bool = True
     ):
         super().__init__()
         
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_ff = d_ff
+        self.use_sdpa = use_sdpa
         
         # Multi-head self-attention
         self.attention = create_attention_layer(
             d_model=d_model,
             n_heads=n_heads,
-            dropout=dropout
+            dropout=dropout,
+            use_sdpa=use_sdpa
         )
         
         # Feed-forward network
@@ -100,14 +104,16 @@ class TransformerDecoderBlock(nn.Module):
         
         logger.debug(
             f"TransformerDecoderBlock initialized: d_model={d_model}, "
-            f"n_heads={n_heads}, d_ff={d_ff}"
+            f"n_heads={n_heads}, d_ff={d_ff}, use_sdpa={use_sdpa}"
         )
     
     def forward(
         self,
         x: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        mask: Optional[torch.Tensor] = None,
+        need_weights: bool = True,
+        is_causal: Optional[bool] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Transformer decoder block forward pass.
         
@@ -115,10 +121,12 @@ class TransformerDecoderBlock(nn.Module):
             x: Input tensor, shape [B, T, D]
             mask: Causal attention mask, shape [B, 1, T, T] or [1, 1, T, T]
                   True positions are masked
+            need_weights: Whether to return explicit attention weights
+            is_causal: Whether to apply causal mask
         
         Returns:
             output: Block output, shape [B, T, D]
-            attention_weights: Attention weights, shape [B, H, T, T]
+            attention_weights: Attention weights, shape [B, H, T, T] if need_weights else None
             
         Pipeline (Pre-LN):
             Input [B, T, D]
@@ -143,38 +151,33 @@ class TransformerDecoderBlock(nn.Module):
         
         # Self-Attention sub-layer with Pre-LN
         # Step 1: Layer normalization
-        # x_norm shape: [B, T, D]
         x_norm = self.ln1(x)
         
         # Step 2: Multi-head attention
-        # attn_output shape: [B, T, D]
-        # attention_weights shape: [B, H, T, T]
-        # k_out, v_out: None (cache not used in training)
-        attn_output, attention_weights, _, _ = self.attention(x_norm, mask)
+        attn_output, attention_weights, _, _ = self.attention(
+            x_norm,
+            mask=mask,
+            need_weights=need_weights,
+            is_causal=is_causal
+        )
         
         # Step 3: Dropout
-        # attn_output shape: [B, T, D]
         attn_output = self.dropout(attn_output)
         
         # Step 4: Residual connection
-        # x shape: [B, T, D]
         x = x + attn_output
         
         # Feed-Forward sub-layer with Pre-LN
         # Step 5: Layer normalization
-        # x_norm shape: [B, T, D]
         x_norm = self.ln2(x)
         
         # Step 6: Feed-forward network
-        # ffn_output shape: [B, T, D]
         ffn_output = self.ffn(x_norm)
         
         # Step 7: Dropout
-        # ffn_output shape: [B, T, D]
         ffn_output = self.dropout(ffn_output)
         
         # Step 8: Residual connection
-        # output shape: [B, T, D]
         output = x + ffn_output
         
         return output, attention_weights
@@ -194,6 +197,8 @@ class TransformerDecoder(nn.Module):
         dropout: Dropout rate
         activation: Activation function
         use_gated_ffn: Use gated FFN
+        use_sdpa: Whether to use PyTorch SDPA
+        gradient_checkpointing: Whether to use gradient checkpointing during training
     
     Shape:
         Input: [batch, seq_len, d_model]
@@ -208,12 +213,16 @@ class TransformerDecoder(nn.Module):
         d_ff: int,
         dropout: float = 0.1,
         activation: str = 'gelu',
-        use_gated_ffn: bool = False
+        use_gated_ffn: bool = False,
+        use_sdpa: bool = True,
+        gradient_checkpointing: bool = False
     ):
         super().__init__()
         
         self.n_layers = n_layers
         self.d_model = d_model
+        self.use_sdpa = use_sdpa
+        self.gradient_checkpointing = gradient_checkpointing
         
         # Stack of decoder blocks
         self.layers = nn.ModuleList([
@@ -223,7 +232,8 @@ class TransformerDecoder(nn.Module):
                 d_ff=d_ff,
                 dropout=dropout,
                 activation=activation,
-                use_gated_ffn=use_gated_ffn
+                use_gated_ffn=use_gated_ffn,
+                use_sdpa=use_sdpa
             )
             for _ in range(n_layers)
         ])
@@ -233,13 +243,24 @@ class TransformerDecoder(nn.Module):
         
         logger.info(
             f"TransformerDecoder initialized: {n_layers} layers, "
-            f"d_model={d_model}, n_heads={n_heads}"
+            f"d_model={d_model}, n_heads={n_heads}, use_sdpa={use_sdpa}, "
+            f"gradient_checkpointing={gradient_checkpointing}"
         )
     
+    def gradient_checkpointing_enable(self):
+        """Enable gradient checkpointing for memory-efficient training."""
+        self.gradient_checkpointing = True
+
+    def gradient_checkpointing_disable(self):
+        """Disable gradient checkpointing."""
+        self.gradient_checkpointing = False
+
     def forward(
         self,
         x: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
+        need_weights: bool = True,
+        is_causal: Optional[bool] = None,
     ) -> Tuple[torch.Tensor, list]:
         """
         Transformer decoder forward pass.
@@ -247,11 +268,13 @@ class TransformerDecoder(nn.Module):
         Args:
             x: Input tensor, shape [B, T, D]
             mask: Causal attention mask, shape [1, 1, T, T]
+            need_weights: Whether to return explicit attention weights from each layer
+            is_causal: Whether to apply causal mask in attention
         
         Returns:
             output: Decoder output, shape [B, T, D]
             attention_weights_list: List of attention weights from each layer
-                                   Each: [B, H, T, T]
+                                   Each: [B, H, T, T] or None
         
         Pipeline:
             Input [B, T, D]
@@ -262,20 +285,34 @@ class TransformerDecoder(nn.Module):
             -> Final LayerNorm [B, T, D]
             -> Output [B, T, D]
         """
-        # x shape: [B, T, D]
-        
+
         # Collect attention weights from each layer
         attention_weights_list = []
         
         # Pass through each decoder block
         for i, layer in enumerate(self.layers):
-            # x shape: [B, T, D]
-            # attention_weights shape: [B, H, T, T]
-            x, attention_weights = layer(x, mask)
+            if self.gradient_checkpointing and self.training:
+                def create_custom_forward(module):
+                    def custom_forward(*inputs):
+                        return module(inputs[0], inputs[1], need_weights=need_weights, is_causal=is_causal)
+                    return custom_forward
+
+                x, attention_weights = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(layer),
+                    x,
+                    mask,
+                    use_reentrant=False
+                )
+            else:
+                x, attention_weights = layer(
+                    x,
+                    mask=mask,
+                    need_weights=need_weights,
+                    is_causal=is_causal
+                )
             attention_weights_list.append(attention_weights)
         
         # Final layer normalization
-        # output shape: [B, T, D]
         output = self.ln_final(x)
         
         return output, attention_weights_list
@@ -287,7 +324,8 @@ def create_transformer_block(
     d_ff: int,
     dropout: float = 0.1,
     activation: str = 'gelu',
-    use_gated_ffn: bool = False
+    use_gated_ffn: bool = False,
+    use_sdpa: bool = True
 ) -> TransformerDecoderBlock:
     """
     Factory function to create a single transformer decoder block.
@@ -299,17 +337,10 @@ def create_transformer_block(
         dropout: Dropout rate
         activation: Activation function
         use_gated_ffn: Use gated FFN
+        use_sdpa: Whether to use PyTorch SDPA
     
     Returns:
         TransformerDecoderBlock instance
-    
-    Example:
-        >>> block = create_transformer_block(d_model=256, n_heads=8, d_ff=1024)
-        >>> x = torch.randn(2, 100, 256)  # [B=2, T=100, D=256]
-        >>> mask = create_causal_mask(100, x.device)
-        >>> output, attn_weights = block(x, mask)
-        >>> output.shape
-        torch.Size([2, 100, 256])
     """
     return TransformerDecoderBlock(
         d_model=d_model,
@@ -317,7 +348,8 @@ def create_transformer_block(
         d_ff=d_ff,
         dropout=dropout,
         activation=activation,
-        use_gated_ffn=use_gated_ffn
+        use_gated_ffn=use_gated_ffn,
+        use_sdpa=use_sdpa
     )
 
 
@@ -328,7 +360,9 @@ def create_transformer_decoder(
     d_ff: int,
     dropout: float = 0.1,
     activation: str = 'gelu',
-    use_gated_ffn: bool = False
+    use_gated_ffn: bool = False,
+    use_sdpa: bool = True,
+    gradient_checkpointing: bool = False
 ) -> TransformerDecoder:
     """
     Factory function to create stacked transformer decoder.
@@ -341,6 +375,8 @@ def create_transformer_decoder(
         dropout: Dropout rate
         activation: Activation function
         use_gated_ffn: Use gated FFN
+        use_sdpa: Whether to use PyTorch SDPA
+        gradient_checkpointing: Whether to use gradient checkpointing during training
     
     Returns:
         TransformerDecoder instance
@@ -365,7 +401,9 @@ def create_transformer_decoder(
         d_ff=d_ff,
         dropout=dropout,
         activation=activation,
-        use_gated_ffn=use_gated_ffn
+        use_gated_ffn=use_gated_ffn,
+        use_sdpa=use_sdpa,
+        gradient_checkpointing=gradient_checkpointing
     )
 
 

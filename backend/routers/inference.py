@@ -491,7 +491,7 @@ def inspect_attention(request: AttentionInspectRequest) -> AttentionInspectRespo
     input_ids = torch.tensor([token_ids], dtype=torch.long, device=device)
 
     with torch.no_grad():
-        _, attention_weights = model(input_ids)
+        _, attention_weights = model(input_ids, need_weights=True)
 
     # attention_weights: List of [1, n_heads, seq_len, seq_len] for each layer
     num_layers = len(attention_weights)

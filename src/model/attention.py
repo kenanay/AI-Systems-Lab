@@ -47,17 +47,21 @@ class ScaledDotProductAttention(nn.Module):
         Attention weights: [batch, n_heads, seq_len, seq_len]
     """
     
-    def __init__(self, dropout: float = 0.1):
+    def __init__(self, dropout: float = 0.1, use_sdpa: bool = True):
         super().__init__()
+        self.dropout_p = dropout
         self.dropout = nn.Dropout(p=dropout)
+        self.use_sdpa = use_sdpa
         
     def forward(
         self,
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        mask: Optional[torch.Tensor] = None,
+        need_weights: bool = True,
+        is_causal: Optional[bool] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Scaled dot-product attention hesapla.
         
@@ -67,10 +71,14 @@ class ScaledDotProductAttention(nn.Module):
             v: Value tensor, shape [B, H, T, D_v]
             mask: Attention mask, shape [B, 1, T, T] or [B, H, T, T]
                   True değerleri mask'lanır (attention yapılmaz)
+            need_weights: If True, computes and returns explicit attention weights [B, H, T, T].
+                          If False and use_sdpa is enabled, utilizes hardware-accelerated
+                          F.scaled_dot_product_attention without materializing the O(T^2) matrix.
+            is_causal: If True, applies causal lower-triangular mask (for autoregressive models).
         
         Returns:
             output: Attention output, shape [B, H, T, D_v]
-            attention_weights: Attention weights, shape [B, H, T, T]
+            attention_weights: Attention weights, shape [B, H, T, T] if need_weights=True, else None
             
         Shape notation:
             B = batch_size
@@ -79,40 +87,53 @@ class ScaledDotProductAttention(nn.Module):
             D_k = d_k (key/query dimension)
             D_v = d_v (value dimension, usually = d_k)
         """
-        # q shape: [B, H, T, D_k]
-        # k shape: [B, H, T, D_k]
-        # v shape: [B, H, T, D_v]
-        
-        # Get key dimension for scaling
+        # Fast path: PyTorch SDPA when explicit attention weights are not requested
+        if self.use_sdpa and not need_weights:
+            dropout_p = self.dropout_p if self.training else 0.0
+            if mask is None and is_causal is True:
+                output = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=None,
+                    dropout_p=dropout_p,
+                    is_causal=True
+                )
+            else:
+                attn_mask = None
+                causal_flag = False
+                if mask is not None:
+                    if mask.dtype == torch.bool:
+                        attn_mask = ~mask
+                    else:
+                        attn_mask = mask
+                elif is_causal is True:
+                    causal_flag = True
+
+                output = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=attn_mask,
+                    dropout_p=dropout_p,
+                    is_causal=causal_flag
+                )
+            return output, None
+
+        # Standard explicit attention calculation (need_weights=True or use_sdpa=False)
         d_k = q.size(-1)
-        
-        # Attention scores: Q @ K^T
-        # k.transpose(-2, -1) shape: [B, H, D_k, T]
-        # scores shape: [B, H, T, T]
         scores = torch.matmul(q, k.transpose(-2, -1))
-        
-        # Scale by sqrt(d_k) to prevent softmax saturation
-        # scaled_scores shape: [B, H, T, T]
         scaled_scores = scores / math.sqrt(d_k)
         
-        # Apply mask (if provided)
         if mask is not None:
-            # mask shape: [B, 1, T, T] or [B, H, T, T]
-            # Set masked positions to large negative value (will be ~0 after softmax)
             scaled_scores = scaled_scores.masked_fill(mask, -1e9)
+        elif is_causal is True:
+            t_q = q.size(-2)
+            t_k = k.size(-2)
+            causal_mask = torch.triu(
+                torch.ones(t_q, t_k, dtype=torch.bool, device=q.device),
+                diagonal=1
+            )
+            scaled_scores = scaled_scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), -1e9)
         
-        # Attention weights: softmax over key dimension (dim=-1)
-        # attention_weights shape: [B, H, T, T]
         attention_weights = F.softmax(scaled_scores, dim=-1)
-        
-        # Apply dropout to attention weights
-        # attention_weights shape: [B, H, T, T]
         attention_weights = self.dropout(attention_weights)
-        
-        # Weighted sum of values: attention_weights @ V
-        # attention_weights shape: [B, H, T, T]
-        # v shape: [B, H, T, D_v]
-        # output shape: [B, H, T, D_v]
         output = torch.matmul(attention_weights, v)
         
         return output, attention_weights
@@ -139,7 +160,8 @@ class MultiHeadAttention(nn.Module):
         self,
         d_model: int,
         n_heads: int,
-        dropout: float = 0.1
+        dropout: float = 0.1,
+        use_sdpa: bool = True
     ):
         super().__init__()
         
@@ -150,6 +172,7 @@ class MultiHeadAttention(nn.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_k = d_model // n_heads  # Dimension per head
+        self.use_sdpa = use_sdpa
         
         # Linear projections for Q, K, V
         # Input: [B, T, D] -> Output: [B, T, D]
@@ -162,14 +185,14 @@ class MultiHeadAttention(nn.Module):
         self.w_o = nn.Linear(d_model, d_model)
         
         # Attention mechanism
-        self.attention = ScaledDotProductAttention(dropout=dropout)
+        self.attention = ScaledDotProductAttention(dropout=dropout, use_sdpa=use_sdpa)
         
         # Dropout
         self.dropout = nn.Dropout(p=dropout)
         
         logger.debug(
             f"MultiHeadAttention initialized: d_model={d_model}, "
-            f"n_heads={n_heads}, d_k={self.d_k}"
+            f"n_heads={n_heads}, d_k={self.d_k}, use_sdpa={use_sdpa}"
         )
     
     def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
@@ -226,8 +249,10 @@ class MultiHeadAttention(nn.Module):
         mask: Optional[torch.Tensor] = None,
         use_cache: bool = False,
         cache_k: Optional[torch.Tensor] = None,
-        cache_v: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        cache_v: Optional[torch.Tensor] = None,
+        need_weights: bool = True,
+        is_causal: Optional[bool] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Multi-head attention forward pass with optional KV caching.
         
@@ -238,10 +263,12 @@ class MultiHeadAttention(nn.Module):
             use_cache: Whether to use/return KV cache
             cache_k: Cached key states, shape [B, H, T_prev, D_k]
             cache_v: Cached value states, shape [B, H, T_prev, D_k]
+            need_weights: Whether to compute and return attention weights
+            is_causal: Whether to apply causal mask
         
         Returns:
             output: Attention output, shape [B, T, D]
-            attention_weights: Attention weights, shape [B, H, T, T_full]
+            attention_weights: Attention weights, shape [B, H, T, T_full] or None
             k_out: Key states to cache, shape [B, H, T_full, D_k] (if use_cache)
             v_out: Value states to cache, shape [B, H, T_full, D_k] (if use_cache)
             
@@ -300,8 +327,13 @@ class MultiHeadAttention(nn.Module):
         # Scaled dot-product attention
         # k, v shape: [B, H, T_full, D_k]
         # attn_output shape: [B, H, T, D_k]
-        # attention_weights shape: [B, H, T, T_full]
-        attn_output, attention_weights = self.attention(q, k, v, mask)
+        # attention_weights shape: [B, H, T, T_full] (or None if need_weights=False)
+        attn_output, attention_weights = self.attention(
+            q, k, v,
+            mask=mask,
+            need_weights=need_weights,
+            is_causal=is_causal
+        )
         
         # Combine heads
         # combined shape: [B, T, D]
@@ -362,7 +394,8 @@ def create_causal_mask(seq_len: int, device: torch.device) -> torch.Tensor:
 def create_attention_layer(
     d_model: int,
     n_heads: int,
-    dropout: float = 0.1
+    dropout: float = 0.1,
+    use_sdpa: bool = True
 ) -> MultiHeadAttention:
     """
     Factory function to create multi-head attention layer.
@@ -371,6 +404,7 @@ def create_attention_layer(
         d_model: Model dimension
         n_heads: Number of attention heads
         dropout: Dropout rate
+        use_sdpa: Whether to use PyTorch scaled_dot_product_attention
     
     Returns:
         MultiHeadAttention instance
@@ -386,7 +420,8 @@ def create_attention_layer(
     return MultiHeadAttention(
         d_model=d_model,
         n_heads=n_heads,
-        dropout=dropout
+        dropout=dropout,
+        use_sdpa=use_sdpa
     )
 
 

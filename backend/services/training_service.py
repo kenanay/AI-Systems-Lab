@@ -357,6 +357,8 @@ class TrainingService:
                     logger.info(f"Pretrain Dataset created: {len(tokens)} tokens")
 
                 # 4. Model konfigürasyonu
+                use_sdpa_opt = bool(cfg.get("use_sdpa", True))
+                grad_checkpointing_opt = bool(cfg.get("gradient_checkpointing", False))
                 model_config = GPTConfig(
                     vocab_size=max(vocab_size, 300),
                     max_seq_len=int(max_seq_len),
@@ -364,7 +366,9 @@ class TrainingService:
                     n_layers=int(n_layers),
                     n_heads=int(n_heads),
                     d_ff=int(d_ff),
-                    dropout=0.1
+                    dropout=0.1,
+                    use_sdpa=use_sdpa_opt,
+                    gradient_checkpointing=grad_checkpointing_opt
                 )
                 model = GPTModel(model_config)
 

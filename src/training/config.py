@@ -74,6 +74,8 @@ class ModelArchitectureConfig:
     activation: str = "gelu"
     use_bias: bool = True
     tie_embeddings: bool = True
+    use_sdpa: bool = True
+    gradient_checkpointing: bool = False
     
     def validate(self):
         """
