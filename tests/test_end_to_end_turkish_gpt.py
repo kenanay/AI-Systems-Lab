@@ -41,12 +41,15 @@ from backend.database import SessionLocal, init_db
 from backend.models import FileRecord, DocumentRecord, TokenizerRecord, DatasetVersion, TrainingJob
 from src.pii import TurkishPIIDetector
 from src.dataset.compiler import DatasetCompiler
-from src.dataset.splits import assign_splits
+from src.dataset.splits import split_for_text
 from src.tokenizer.bpe import BPETokenizer
 from src.model.gpt import GPTModel, GPTConfig
 from src.evaluation.benchmarks import BenchmarkRunner
 from src.registry.model_registry import ModelRegistry
 from src.inference.pipeline import InferencePipeline
+
+# Tüm test class'ını slow olarak işaretle - CI'da skip edilir
+pytestmark = pytest.mark.slow
 
 
 # Test Constants
@@ -229,12 +232,9 @@ class TestEndToEndTurkishGPT:
         
         assert doc_record is not None, "Document record not found"
         
-        # Test için split assign et (normalde çok sayıda belge olur)
-        # Bu senaryoda tek belge var, train olarak işaretle
-        splits = assign_splits([doc_record], train_ratio=0.8, val_ratio=0.1, test_ratio=0.1)
-        
-        # Split bilgisini dokümana ekle (normalde metadata'da saklanır)
-        split_info = splits.get(doc_record.document_id, "train")
+        # Test için split assign et (content-based deterministic split)
+        # split_for_text fonksiyonu content hash'e göre split belirler
+        split_info = split_for_text(doc_record.content)
         
         print(f"✓ Split assigned: {split_info}")
         print(f"✓ Split işlemi tamamlandı")
