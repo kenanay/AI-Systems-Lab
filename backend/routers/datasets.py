@@ -10,7 +10,8 @@ from typing import Any, List, Optional
 import logging
 
 from backend.database import get_db
-from backend.models import DocumentRecord
+from backend.models import DocumentRecord, UserRecord
+from backend.security.dependencies import get_current_user, require_role
 from backend.schemas import (
     DocumentRecordResponse,
     DocumentPreview,
@@ -25,7 +26,10 @@ router = APIRouter(prefix="/api/v1/datasets", tags=["datasets"])
 
 
 @router.get("/stats", response_model=IngestionStats)
-def get_dataset_statistics(db: Session = Depends(get_db)) -> IngestionStats:
+def get_dataset_statistics(
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
+) -> IngestionStats:
     """
     Dataset istatistiklerini getir.
     
@@ -44,7 +48,8 @@ def list_documents(
     limit: int = Query(default=50, ge=1, le=100),
     language: Optional[str] = None,
     min_quality: Optional[float] = Query(default=None, ge=0.0, le=1.0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> List[DocumentPreview]:
     """
     Dokümanları listele (preview mode - truncated text).
@@ -102,7 +107,11 @@ def list_documents(
 
 
 @router.get("/documents/{document_id}", response_model=DocumentRecordResponse)
-def get_document(document_id: str, db: Session = Depends(get_db)) -> DocumentRecordResponse:
+def get_document(
+    document_id: str, 
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
+) -> DocumentRecordResponse:
     """
     Belirli bir dokümanın tam içeriğini getir.
     
@@ -158,7 +167,10 @@ def get_document_by_file(file_id: str, db: Session = Depends(get_db)) -> Documen
 
 
 @router.post("/export/parquet", status_code=status.HTTP_202_ACCEPTED)
-def export_to_parquet(db: Session = Depends(get_db)) -> dict:
+def export_to_parquet(
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(require_role("admin", "researcher"))
+) -> dict:
     """
     Database'deki tüm kayıtları Parquet formatına export et.
     
@@ -242,7 +254,8 @@ def export_to_parquet(db: Session = Depends(get_db)) -> dict:
 @router.post("/export/pretraining", status_code=status.HTTP_202_ACCEPTED)
 def export_for_pretraining(
     min_quality_score: float = Query(default=0.5, ge=0.0, le=1.0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(require_role("admin", "researcher"))
 ) -> dict:
     """
     Pretraining formatına export et (JSONL).
@@ -316,7 +329,8 @@ def export_for_pretraining(
 def create_dataset_version(
     version: str,
     description: str = Query(default="", max_length=500),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(require_role("admin", "researcher"))
 ) -> dict:
     """
     Yeni bir immutable dataset versiyonu oluştur.

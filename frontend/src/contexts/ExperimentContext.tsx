@@ -1,0 +1,317 @@
+/**
+ * Experiment Context
+ * 
+ * Lab'lar arası bağlam aktarımı için merkezi state yönetimi.
+ * Kullanıcının seçtiği dataset, model, tokenizer gibi artefaktları
+ * farklı lab'lar arasında taşır.
+ * 
+ * Örnek Akış:
+ * 1. Dataset Lab'da dataset seç
+ * 2. Tokenizer Lab'a git - dataset otomatik yüklü
+ * 3. Training Lab'a git - dataset + tokenizer hazır
+ * 4. Evaluation Lab'a git - trained model ile değerlendirme
+ */
+
+'use client';
+
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+
+// Experiment state type
+export interface ExperimentState {
+  // Identifiers
+  experimentId?: string;
+  experimentName?: string;
+  
+  // Artifacts
+  datasetId?: string;
+  datasetName?: string;
+  datasetVersion?: string;
+  
+  tokenizerId?: string;
+  tokenizerName?: string;
+  tokenizerVocabSize?: number;
+  
+  modelId?: string;
+  modelName?: string;
+  modelCheckpoint?: string;
+  
+  // Configuration
+  taskType?: 'pretrain' | 'sft' | 'lora' | 'evaluation' | 'rag';
+  
+  // Metadata
+  createdAt?: string;
+  lastModified?: string;
+  
+  // Navigation history
+  visitedLabs?: string[];
+}
+
+interface ExperimentContextType {
+  // Current state
+  experiment: ExperimentState;
+  
+  // Actions
+  setDataset: (id: string, name: string, version?: string) => void;
+  setTokenizer: (id: string, name: string, vocabSize?: number) => void;
+  setModel: (id: string, name: string, checkpoint?: string) => void;
+  setTaskType: (taskType: ExperimentState['taskType']) => void;
+  
+  // Experiment management
+  startNewExperiment: (name?: string) => void;
+  clearExperiment: () => void;
+  loadExperiment: (state: ExperimentState) => void;
+  
+  // Navigation tracking
+  markLabVisited: (labName: string) => void;
+  
+  // Helpers
+  hasDataset: () => boolean;
+  hasTokenizer: () => boolean;
+  hasModel: () => boolean;
+  isReady: (requiredItems: ('dataset' | 'tokenizer' | 'model')[]) => boolean;
+}
+
+const ExperimentContext = createContext<ExperimentContextType | undefined>(undefined);
+
+const STORAGE_KEY = 'ai-lab-experiment-context';
+
+export function ExperimentProvider({ children }: { children: React.ReactNode }) {
+  const [experiment, setExperiment] = useState<ExperimentState>({});
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setExperiment(parsed);
+        } catch (e) {
+          console.error('Failed to load experiment context:', e);
+        }
+      }
+    }
+  }, []);
+
+  // Save to localStorage on change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && Object.keys(experiment).length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(experiment));
+    }
+  }, [experiment]);
+
+  const setDataset = useCallback((id: string, name: string, version?: string) => {
+    setExperiment(prev => ({
+      ...prev,
+      datasetId: id,
+      datasetName: name,
+      datasetVersion: version,
+      lastModified: new Date().toISOString(),
+    }));
+  }, []);
+
+  const setTokenizer = useCallback((id: string, name: string, vocabSize?: number) => {
+    setExperiment(prev => ({
+      ...prev,
+      tokenizerId: id,
+      tokenizerName: name,
+      tokenizerVocabSize: vocabSize,
+      lastModified: new Date().toISOString(),
+    }));
+  }, []);
+
+  const setModel = useCallback((id: string, name: string, checkpoint?: string) => {
+    setExperiment(prev => ({
+      ...prev,
+      modelId: id,
+      modelName: name,
+      modelCheckpoint: checkpoint,
+      lastModified: new Date().toISOString(),
+    }));
+  }, []);
+
+  const setTaskType = useCallback((taskType: ExperimentState['taskType']) => {
+    setExperiment(prev => ({
+      ...prev,
+      taskType,
+      lastModified: new Date().toISOString(),
+    }));
+  }, []);
+
+  const startNewExperiment = useCallback((name?: string) => {
+    const newExperiment: ExperimentState = {
+      experimentId: `exp_${Date.now()}`,
+      experimentName: name || `Experiment ${new Date().toLocaleDateString('tr-TR')}`,
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+      visitedLabs: [],
+    };
+    setExperiment(newExperiment);
+  }, []);
+
+  const clearExperiment = useCallback(() => {
+    setExperiment({});
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  const loadExperiment = useCallback((state: ExperimentState) => {
+    setExperiment(state);
+  }, []);
+
+  const markLabVisited = useCallback((labName: string) => {
+    setExperiment(prev => ({
+      ...prev,
+      visitedLabs: [...(prev.visitedLabs || []), labName].filter(
+        (lab, index, self) => self.indexOf(lab) === index // unique
+      ),
+    }));
+  }, []);
+
+  const hasDataset = useCallback(() => {
+    return !!experiment.datasetId;
+  }, [experiment.datasetId]);
+
+  const hasTokenizer = useCallback(() => {
+    return !!experiment.tokenizerId;
+  }, [experiment.tokenizerId]);
+
+  const hasModel = useCallback(() => {
+    return !!experiment.modelId;
+  }, [experiment.modelId]);
+
+  const isReady = useCallback((requiredItems: ('dataset' | 'tokenizer' | 'model')[]) => {
+    return requiredItems.every(item => {
+      if (item === 'dataset') return hasDataset();
+      if (item === 'tokenizer') return hasTokenizer();
+      if (item === 'model') return hasModel();
+      return false;
+    });
+  }, [hasDataset, hasTokenizer, hasModel]);
+
+  const value: ExperimentContextType = {
+    experiment,
+    setDataset,
+    setTokenizer,
+    setModel,
+    setTaskType,
+    startNewExperiment,
+    clearExperiment,
+    loadExperiment,
+    markLabVisited,
+    hasDataset,
+    hasTokenizer,
+    hasModel,
+    isReady,
+  };
+
+  return (
+    <ExperimentContext.Provider value={value}>
+      {children}
+    </ExperimentContext.Provider>
+  );
+}
+
+// Hook
+export function useExperiment() {
+  const context = useContext(ExperimentContext);
+  if (context === undefined) {
+    throw new Error('useExperiment must be used within an ExperimentProvider');
+  }
+  return context;
+}
+
+// Helper component: Experiment status bar
+export function ExperimentStatusBar() {
+  const { experiment, hasDataset, hasTokenizer, hasModel } = useExperiment();
+
+  if (!experiment.experimentId) {
+    return null;
+  }
+
+  return (
+    <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-2">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+            <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              {experiment.experimentName}
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+            {hasDataset() && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 rounded">
+                <span>📊</span>
+                <span>{experiment.datasetName}</span>
+              </div>
+            )}
+            {hasTokenizer() && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 rounded">
+                <span>🔤</span>
+                <span>{experiment.tokenizerName}</span>
+              </div>
+            )}
+            {hasModel() && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 rounded">
+                <span>🤖</span>
+                <span>{experiment.modelName}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Helper component: Missing requirements alert
+export function ExperimentRequirements({ 
+  required,
+  message 
+}: { 
+  required: ('dataset' | 'tokenizer' | 'model')[],
+  message?: string
+}) {
+  const { isReady, hasDataset, hasTokenizer, hasModel } = useExperiment();
+
+  if (isReady(required)) {
+    return null;
+  }
+
+  const missing = required.filter(item => {
+    if (item === 'dataset') return !hasDataset();
+    if (item === 'tokenizer') return !hasTokenizer();
+    if (item === 'model') return !hasModel();
+    return false;
+  });
+
+  const labels = {
+    dataset: 'Dataset',
+    tokenizer: 'Tokenizer',
+    model: 'Model',
+  };
+
+  return (
+    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <div className="text-yellow-600 dark:text-yellow-400">⚠️</div>
+        <div>
+          <h4 className="font-semibold text-yellow-900 dark:text-yellow-100 mb-1">
+            Eksik Bileşenler
+          </h4>
+          <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
+            {message || 'Bu lab için gerekli bileşenler seçilmedi:'}
+          </p>
+          <ul className="text-sm text-yellow-700 dark:text-yellow-300 list-disc list-inside">
+            {missing.map(item => (
+              <li key={item}>{labels[item]}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}

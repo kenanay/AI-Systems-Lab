@@ -9,13 +9,17 @@ Bu modül eğitilmiş modellerin yönetimi için REST API sağlar:
 - Model silme
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 import logging
 from pathlib import Path
 
+from backend.database import get_db
+from backend.models import UserRecord
+from backend.security.dependencies import get_current_user, require_role
 from src.registry.model_registry import ModelRegistry, ModelMetadata
 from src.export.model_exporter import ModelExporter
 
@@ -47,7 +51,8 @@ class ExportModelRequest(BaseModel):
 
 @router.get("", response_model=List[Dict[str, Any]])
 def list_models(
-    environment: Optional[str] = Query(None, description="Filtre: development, staging, production")
+    environment: Optional[str] = Query(None, description="Filtre: development, staging, production"),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """
     Kayıtlı tüm modelleri listeler.
@@ -80,7 +85,8 @@ def list_models(
 @router.get("/{model_name}", response_model=Dict[str, Any])
 def get_model(
     model_name: str,
-    version: Optional[str] = Query(None, description="Belirli versiyon (varsayılan: en son)")
+    version: Optional[str] = Query(None, description="Belirli versiyon (varsayılan: en son)"),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Belirli bir modelin detaylarını getirir.
@@ -133,7 +139,8 @@ def verify_model(
 @router.delete("/{model_name}")
 def delete_model(
     model_name: str,
-    version: Optional[str] = Query(None, description="Silinecek versiyon")
+    version: Optional[str] = Query(None, description="Silinecek versiyon"),
+    current_user: UserRecord = Depends(require_role("admin"))
 ) -> Dict[str, Any]:
     """
     Model kaydını registry'den siler.

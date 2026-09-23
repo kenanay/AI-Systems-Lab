@@ -10,7 +10,8 @@ from typing import List, Any
 import logging
 
 from backend.database import get_db
-from backend.models import FileRecord, DocumentRecord
+from backend.models import FileRecord, DocumentRecord, UserRecord
+from backend.security.dependencies import get_current_user, require_role
 from backend.storage import storage_manager
 from backend.utils import (
     generate_file_id,
@@ -31,7 +32,8 @@ router = APIRouter(prefix="/api/v1/files", tags=["files"])
 @router.post("/upload", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> FileUploadResponse:
     """
     Dosya yükle ve sisteme kaydet.
@@ -178,7 +180,8 @@ async def upload_file(
 def list_files(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> Any:
     """
     Yüklenmiş dosyaları listele.
@@ -201,7 +204,11 @@ def list_files(
 
 
 @router.get("/{file_id}", response_model=FileRecordResponse)
-def get_file(file_id: str, db: Session = Depends(get_db)) -> FileRecordResponse:
+def get_file(
+    file_id: str, 
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
+) -> FileRecordResponse:
     """
     Belirli bir dosyanın bilgilerini getir.
     
@@ -227,7 +234,11 @@ def get_file(file_id: str, db: Session = Depends(get_db)) -> FileRecordResponse:
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_file(file_id: str, db: Session = Depends(get_db)) -> None:
+def delete_file(
+    file_id: str, 
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(require_role("admin", "researcher"))
+) -> None:
     """
     Dosyayı sil.
     
@@ -262,7 +273,8 @@ def delete_file(file_id: str, db: Session = Depends(get_db)) -> None:
 def update_file_metadata(
     file_id: str,
     update_data: FileMetadataUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(require_role("admin", "researcher"))
 ) -> FileRecordResponse:
     """
     Dosya metadata'sını güncelle.
@@ -326,7 +338,8 @@ def update_file_metadata(
 @router.post("/{file_id}/process", response_model=DocumentRecordResponse, status_code=status.HTTP_201_CREATED)
 async def process_file(
     file_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> DocumentRecordResponse:
     """
     Dosyayı parse et ve DocumentRecord oluştur.
@@ -415,7 +428,8 @@ async def process_file(
 @router.post("/batch-process", status_code=status.HTTP_202_ACCEPTED)
 async def batch_process_files(
     file_ids: List[str],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
 ) -> dict:
     """
     Birden fazla dosyayı batch olarak process et.
