@@ -3,7 +3,7 @@
 **İnceleme tarihi:** 23 Eylül 2026  
 **Kaynak depo:** [kenanay/AI-Systems-Lab](https://github.com/kenanay/AI-Systems-Lab)  
 **İncelenen dal:** `main`  
-**İncelenen commit:** `425edf2aa26c751497653d0987916b39ffa6bc1f` (ve yerel CI test düzeltmeleri)  
+**İncelenen commit:** `52e42fdb2b14f098245c723ff9a4c20db61a52a0`  
 **Değerlendirme kapsamı:** Proje amacı, geliştirme durumu, frontend, backend, entegrasyon, tutarsızlıklar, riskler ve geliştirme yol haritası.
 
 > **Temel ölçüt:** AI Systems Lab, yalnızca yapay zekâ araçlarını çalıştıran bir uygulama değil; kullanıcının verinin hazırlanmasından başlayarak modellerin nasıl tasarlandığını, eğitildiğini, değerlendirildiğini ve kullanıma sunulduğunu uygulamalı olarak öğrenebildiği bütünleşik bir araştırma ve eğitim ortamı olmalıdır.
@@ -57,10 +57,10 @@ Katmanların ayrılması, algoritmaların bağımsız test edilmesine ve farklı
 
 Son geliştirmelerde PyTorch SDPA ve gradient checkpointing optimizasyonları eklenmiş; ardından backend testleri, SFT entegrasyonu ve uçtan uca Türkçe Mini-GPT kabul senaryoları tam uyumlu hale getirilmiştir.
 
-İncelenen durum için CI Quality Gate standartlarında gerçekleştirilen yerel test çalıştırma sonuçları:
+[GitHub Actions – CI Quality Gate (Run 35929181981)](https://github.com/kenanay/AI-Systems-Lab/actions/runs/35929181981) iş akışı başarıyla tamamlanmış (yeşil) ve doğrulanmıştır:
 - **Python Backend Testleri:** 406 birim ve entegrasyon testi (%100 Başarılı), 11 uçtan uca Türkçe Mini-GPT kabul testi (%100 Başarılı), 2 SFT entegrasyon testi (%100 Başarılı). Toplam 419 doğrulanmış test.
 - **Frontend Testleri:** 15 Jest test paketi, 80 test (%100 Başarılı).
-- **Frontend Derleme:** TypeScript kontrolü ve Next.js production build hatasız tamamlanmış, 25 sayfa başarıyla derlenmiştir.
+- **Frontend Derleme:** TypeScript kontrolü (`tsc --noEmit`) ve Next.js production build hatasız tamamlanmış, 25 sayfa başarıyla derlenmiştir.
 
 **Sürekli Doğrulama Gerektiren Başlıklar:** Gerçek GPU ortamında uzun süreli model eğitimi; sunucu yeniden başlatma sonrası worker kurtarma süreçleri; kullanıcılar arasında veri/model izolasyonunun canlı yük altında korunması.
 
@@ -547,5 +547,5 @@ Backend yapay zekâ işlem hattı ve güvenlik temelleri **gerçek araştırma v
 ---
 
 *Son güncelleme: 23 Eylül 2026*  
-*İncelenen commit: `425edf2aa26c751497653d0987916b39ffa6bc1f` ve yerel doğrulama testleri.*  
+*İncelenen commit: `52e42fdb2b14f098245c723ff9a4c20db61a52a0` | [GitHub Actions Run 35929181981](https://github.com/kenanay/AI-Systems-Lab/actions/runs/35929181981)*  
 *Test Doğrulama Durumu: 406 non-slow birim/entegrasyon testi (%100 Başarılı), 11 uçtan uca Türkçe Mini-GPT kabul testi (%100 Başarılı), 2 SFT entegrasyon testi (%100 Başarılı), 15 Jest frontend test paketi (80 test %100 Başarılı), Next.js production build (25 sayfa %100 Başarılı).*
