@@ -179,7 +179,7 @@ def test_gqa_forward():
     gqa = GroupedQueryAttention(d_model=d_model, num_heads=num_heads, num_kv_heads=num_kv_heads)
     x = torch.randn(2, 6, d_model)
 
-    out, attn_weights = gqa(x)
+    out, attn_weights = gqa(x, need_weights=True)
 
     assert out.shape == (2, 6, d_model)
     assert attn_weights.shape == (2, num_heads, 6, 6)
@@ -196,12 +196,12 @@ def test_architecture_catalog_content():
     assert len(catalog) == 10
 
     arch_ids = [a["id"] for a in catalog]
+    assert "transformer_dense" in arch_ids
     assert "moe_sparse" in arch_ids
     assert "mamba_ssm" in arch_ids
-    assert "gqa_attention" in arch_ids
-    assert "rwkv" in arch_ids
-    assert "retnet" in arch_ids
-    assert "hybrid_jamba" in arch_ids
+    assert "gqa_transformer" in arch_ids
+    assert "vision_transformer" in arch_ids
+    assert "diffusion" in arch_ids
 
     # Every architecture must have essential pedagogical fields
     for a in catalog:

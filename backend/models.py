@@ -22,6 +22,15 @@ def utc_now() -> datetime:
 class OwnedResource:
     owner_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
 
+    @property
+    def user_id(self) -> Optional[str]:
+        return self.owner_id
+
+    @user_id.setter
+    def user_id(self, val: Optional[str]) -> None:
+        self.owner_id = val
+
+
 
 class FileRecord(OwnedResource, Base):
     """

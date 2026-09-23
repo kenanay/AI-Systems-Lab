@@ -11,6 +11,9 @@ jest.mock('@/lib/api', () => {
     api: {
       ...original.api,
       journey: {
+        getProgress: jest.fn(() =>
+          Promise.resolve({ answers: {} })
+        ),
         getCurriculum: jest.fn(() =>
           Promise.resolve([
             {

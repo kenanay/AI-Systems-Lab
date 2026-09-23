@@ -159,9 +159,10 @@ class ModelRegistry:
         """
         from src.security.context import principal
         actor = principal.get()
-        self.registry_dir = Path(registry_dir)
-        if actor is not None:
+        if actor is not None and str(registry_dir) in ("model_registry", "models"):
             self.registry_dir = Path("models") if actor.role == "admin" else Path("models") / "users" / actor.user_id
+        else:
+            self.registry_dir = Path(registry_dir)
         self.registry_dir.mkdir(parents=True, exist_ok=True)
         self.index = {}
         

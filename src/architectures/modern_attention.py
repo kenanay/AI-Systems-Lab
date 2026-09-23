@@ -142,9 +142,9 @@ class GroupedQueryAttention(nn.Module):
         self.use_rope = use_rope
 
         # Projections
-        self.q_proj = nn.Linear(d_model, n_heads * self.d_k, bias=False)
-        self.k_proj = nn.Linear(d_model, n_kv_heads * self.d_k, bias=False)
-        self.v_proj = nn.Linear(d_model, n_kv_heads * self.d_k, bias=False)
+        self.q_proj = nn.Linear(d_model, self.n_heads * self.d_k, bias=False)
+        self.k_proj = nn.Linear(d_model, self.n_kv_heads * self.d_k, bias=False)
+        self.v_proj = nn.Linear(d_model, self.n_kv_heads * self.d_k, bias=False)
         self.out_proj = nn.Linear(d_model, d_model, bias=False)
 
         self.dropout = nn.Dropout(dropout)
@@ -158,7 +158,8 @@ class GroupedQueryAttention(nn.Module):
         self,
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-        is_causal: bool = True
+        is_causal: bool = True,
+        need_weights: bool = False
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Forward pass for GQA.
@@ -167,6 +168,7 @@ class GroupedQueryAttention(nn.Module):
             x: Input tensor, shape [B, T, D]
             mask: Attention mask
             is_causal: Whether to apply causal masking
+            need_weights: Whether to compute and return explicit attention weights [B, H, T, T]
         """
         batch_size, seq_len, _ = x.shape
 
@@ -186,16 +188,26 @@ class GroupedQueryAttention(nn.Module):
             k = k.repeat_interleave(self.num_queries_per_kv, dim=1)
             v = v.repeat_interleave(self.num_queries_per_kv, dim=1)
 
-        # Scaled dot-product attention
-        output = F.scaled_dot_product_attention(
-            q, k, v,
-            attn_mask=mask,
-            dropout_p=self.dropout.p if self.training else 0.0,
-            is_causal=is_causal and mask is None
-        )
+        attn_weights = None
+        if need_weights:
+            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+            if is_causal and mask is None:
+                causal_mask = torch.triu(torch.full((seq_len, seq_len), float("-inf"), device=x.device), diagonal=1)
+                scores = scores + causal_mask
+            elif mask is not None:
+                scores = scores + mask
+            attn_weights = F.softmax(scores, dim=-1)
+            output = torch.matmul(attn_weights, v)
+        else:
+            output = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=mask,
+                dropout_p=self.dropout.p if self.training else 0.0,
+                is_causal=is_causal and mask is None
+            )
 
         # Combine heads
         output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
         output = self.out_proj(output)
 
-        return output, None
+        return output, attn_weights

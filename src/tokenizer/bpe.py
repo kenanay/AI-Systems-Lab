@@ -426,6 +426,10 @@ class BPETokenizer:
             json.dump(config, f, indent=2)
         
         logger.info(f"Vocabulary saved to {output_path}")
+
+    def save(self, output_path: Union[str, Path]) -> None:
+        """Alias for save_vocab for API compatibility."""
+        self.save_vocab(Path(output_path))
     
     def load_vocab(self, input_path: Path) -> None:
         """

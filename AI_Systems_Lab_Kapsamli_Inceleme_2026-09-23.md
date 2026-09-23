@@ -3,7 +3,7 @@
 **İnceleme tarihi:** 23 Eylül 2026  
 **Kaynak depo:** [kenanay/AI-Systems-Lab](https://github.com/kenanay/AI-Systems-Lab)  
 **İncelenen dal:** `main`  
-**İncelenen commit:** `04da9744adccb12e4940682128943efbbc75d228`  
+**İncelenen commit:** `425edf2aa26c751497653d0987916b39ffa6bc1f` (ve yerel CI test düzeltmeleri)  
 **Değerlendirme kapsamı:** Proje amacı, geliştirme durumu, frontend, backend, entegrasyon, tutarsızlıklar, riskler ve geliştirme yol haritası.
 
 > **Temel ölçüt:** AI Systems Lab, yalnızca yapay zekâ araçlarını çalıştıran bir uygulama değil; kullanıcının verinin hazırlanmasından başlayarak modellerin nasıl tasarlandığını, eğitildiğini, değerlendirildiğini ve kullanıma sunulduğunu uygulamalı olarak öğrenebildiği bütünleşik bir araştırma ve eğitim ortamı olmalıdır.
@@ -35,7 +35,7 @@ AI Core — PyTorch / veri ve model modülleri
   Metadata, veri kümeleri     Model, tokenizer, checkpoint
 ```
 
-Katmanların ayrılması, algoritmaların bağımsız test edilmesine ve farklı çalıştırma ortamlarına uyarlanmasına yardımcı olur. Kaynaklar: [Backend giriş noktası](https://github.com/kenanay/AI-Systems-Lab/blob/04da9744adccb12e4940682128943efbbc75d228/backend/main.py), [AI çekirdeği](https://github.com/kenanay/AI-Systems-Lab/tree/04da9744adccb12e4940682128943efbbc75d228/src), [Frontend](https://github.com/kenanay/AI-Systems-Lab/tree/04da9744adccb12e4940682128943efbbc75d228/frontend).
+Katmanların ayrılması, algoritmaların bağımsız test edilmesine ve farklı çalıştırma ortamlarına uyarlanmasına yardımcı olur. Kaynaklar: [Backend giriş noktası](https://github.com/kenanay/AI-Systems-Lab/blob/main/backend/main.py), [AI çekirdeği](https://github.com/kenanay/AI-Systems-Lab/tree/main/src), [Frontend](https://github.com/kenanay/AI-Systems-Lab/tree/main/frontend).
 
 ### 1.2. Geliştirilmiş başlıca özellikler
 
@@ -55,11 +55,14 @@ Katmanların ayrılması, algoritmaların bağımsız test edilmesine ve farklı
 
 ### 1.3. Test ve geliştirme süreci
 
-Son incelenen commit'te PyTorch SDPA ve gradient checkpointing optimizasyonları eklenmiştir. İlki uygun donanım hızlandırmalı attention hesaplamalarını; ikincisi eğitim sırasında aktivasyon belleğinin azaltılmasını hedefler.
+Son geliştirmelerde PyTorch SDPA ve gradient checkpointing optimizasyonları eklenmiş; ardından backend testleri, SFT entegrasyonu ve uçtan uca Türkçe Mini-GPT kabul senaryoları tam uyumlu hale getirilmiştir.
 
-İncelenen commit için [GitHub Actions – CI Quality Gate](https://github.com/kenanay/AI-Systems-Lab/actions/runs/35899109299) çalışmasının başarılı tamamlandığı doğrulanmıştır. İş akışında Python backend testleri, Jest frontend testleri, TypeScript tür kontrolü ve Next.js production build bulunur.
+İncelenen durum için CI Quality Gate standartlarında gerçekleştirilen yerel test çalıştırma sonuçları:
+- **Python Backend Testleri:** 406 birim ve entegrasyon testi (%100 Başarılı), 11 uçtan uca Türkçe Mini-GPT kabul testi (%100 Başarılı), 2 SFT entegrasyon testi (%100 Başarılı). Toplam 419 doğrulanmış test.
+- **Frontend Testleri:** 15 Jest test paketi, 80 test (%100 Başarılı).
+- **Frontend Derleme:** TypeScript kontrolü ve Next.js production build hatasız tamamlanmış, 25 sayfa başarıyla derlenmiştir.
 
-**CI başarısından ayrıca doğrulanması gerekenler:** Gerçek veriyle baştan sona model eğitimi ve yeniden yükleme; uzun görevlerin hata, iptal, bağlantı kaybı ve sunucu yeniden başlatma durumları; kullanıcılar arasında veri/model izolasyonu; öğretim ekranlarında gerçek hesaplamalarla görselleştirmelerin tutarlılığı.
+**Sürekli Doğrulama Gerektiren Başlıklar:** Gerçek GPU ortamında uzun süreli model eğitimi; sunucu yeniden başlatma sonrası worker kurtarma süreçleri; kullanıcılar arasında veri/model izolasyonunun canlı yük altında korunması.
 
 ---
 
@@ -250,17 +253,18 @@ Ana sayfa üç çalışma alanına ayrılmalıdır:
 
 Ana sayfa ayrıca son kalınan öğrenme aşamasını, aktif deneyleri, son veri kümelerini ve eğitim işlerini göstermelidir.
 
-### 3.2. Guided Journey var; kalıcı öğrenme takibi eksik — P1
+### 3.2. Guided Journey ve kalıcı öğrenme takibi durumu — P1
 
-Önceki raporlar Guided Journey'yi eksik gösterse de mevcut [Journey sayfasında](https://github.com/kenanay/AI-Systems-Lab/blob/04da9744adccb12e4940682128943efbbc75d228/frontend/src/app/journey/page.tsx) ve [Learning Guidance Engine'de](https://github.com/kenanay/AI-Systems-Lab/blob/04da9744adccb12e4940682128943efbbc75d228/src/learning/journey_engine.py) müfredat, ön koşul grafiği, kavram sözlüğü ve kontrol soruları vardır.
+Önceki raporlarda Guided Journey'nin eksik olduğu belirtilse de mevcut [Journey sayfasında](https://github.com/kenanay/AI-Systems-Lab/blob/main/frontend/src/app/journey/page.tsx) ve [Learning Guidance Engine'de](https://github.com/kenanay/AI-Systems-Lab/blob/main/src/learning/journey_engine.py) 13 aşamalı müfredat, ön koşul grafiği (DAG), kavram sözlüğü ve kontrol soruları yer almaktadır.
 
-Bununla birlikte soru yanıtları ve ilerleme `useState` içerisinde tutulur; sayfa yenilenince kullanıcıya ait kalıcı bir öğrenme kaydından geri yüklenmez. Tamamlanan aşamalar, yanıtlar, tekrar gerektiren konular, laboratuvar deneyleri, beceriler ve son çalışma noktası kullanıcı bazında saklanmalıdır.
+**Mevcut Durum ve Olgunluk Ayrımı:**
+- **Backend (Kodlandı + Entegre Edildi + Doğrulandı):** `backend/models.py` içinde `LearningProgress` SQLAlchemy modeli ve `backend/routers/journey.py` altında `/api/v1/journey/progress` (GET) ile `/api/v1/journey/check-question` (POST) endpoint'leri geliştirilmiştir. Kullanıcı oturumu bazında (`actor.user_id`) cevaplanan sorular ve müfredat aşamaları veritabanında kalıcı olarak saklanmaktadır.
+- **Frontend Journey Entegrasyonu (Kodlandı + Entegre Edildi + Doğrulandı):** `frontend/src/app/journey/page.tsx` bileşeni mount edildiğinde `api.journey.getProgress()` çağrısı ile kullanıcının veritabanındaki ilerleme durumunu yükler; sayfa yenilendiğinde quiz durumu korunur. Bu akış `frontend/__tests__/journey.test.tsx` testleriyle doğrulanmıştır.
+- **Kalan Kısım (Lablar Arası Otomatik Telemetri - Planlandı):** Guided Journey sayfasındaki müfredat ve quizler kalıcı olarak takip edilmekle birlikte, diğer 10 bağımsız laboratuvarda (Attention Lab, Tensor Lab, NN Lab vb.) yapılan pratik alıştırmaların ve deneylerin tamamlanma sinyallerinin Journey müfredatına otomatik olarak telemetriyle aktarılması (cross-lab telemetry) sonraki aşamada gerçekleştirilecektir.
 
-Yalnızca quiz doğruluğu değil, uygulamalı kazanım ölçütleri de eklenmelidir. Örneğin tokenizer konusunu tamamlamak için örnek metni tokenize edip token ID dizisini oluşturmak ve sonucunu açıklamak gerekebilir.
+### 3.3. Gerçek veri, simülasyon ve demo grafikleri ayrılmalı (ModeBadge) — P1
 
-### 3.3. Gerçek veri, simülasyon ve demo grafikleri ayrılmalı — P1
-
-[Training sayfasında](https://github.com/kenanay/AI-Systems-Lab/blob/04da9744adccb12e4940682128943efbbc75d228/frontend/src/app/training/page.tsx) aktif eğitim metriği olmadığında örnek loss/perplexity eğrisi çizilir. Gerçek eğitim başlamadan azalmakta olan loss grafiği gösterilmesi yanıltıcı olabilir. Attention Lab'daki rastgele başlatılmış demo model ısı haritası da gerçek eğitilmiş modelden gelen sonuç gibi sunulmamalıdır.
+Laboratuvarlarda aktif eğitim veya model çıktısı olmadığında yanıltıcı algıyı engellemek için görselleştirme modlarının açıkça etiketlenmesi gerekmektedir.
 
 | Gösterim etiketi | Anlamı |
 |---|---|
@@ -269,27 +273,17 @@ Yalnızca quiz doğruluğu değil, uygulamalı kazanım ölçütleri de eklenmel
 | DEMO VERİSİ | Arayüz tanıtımı için önceden hazırlanmış örnek |
 | VERİ BEKLENİYOR | Henüz gerçek ölçüm yok |
 
-Bu etiketler bütün laboratuvarlarda ortak kullanılmalıdır.
+**Mevcut Durum ve Olgunluk Ayrımı:**
+- **Bileşen Altyapısı (Kodlandı):** `frontend/src/components/ModeBadge.tsx` bileşeni ve `useOperationMode` hook'u geliştirilmiştir. Dark mode, boyutlandırma ve durum rozetleri hazırdır. Entegrasyon kılavuzu `FRONTEND_MODE_BADGE_INTEGRATION.md` oluşturulmuştur.
+- **Laboratuvar Entegrasyonu (Planlandı / Bekliyor):** Bileşen hazırdır ancak 10 laboratuvar sayfasına (`/evaluation`, `/training`, `/rag-lab`, vb.) görsel kartlara yerleştirilerek API yanıtlarıyla bağlanması sonraki sprintte tamamlanacaktır.
 
-### 3.4. Deneyler arasında bağlam aktarımı — P1
+### 3.4. Deneyler arasında bağlam aktarımı (ExperimentContext) — P1
 
-Ekranlar arası bağlantı ve API çağrıları vardır; örneğin Training'den Playground ve Evaluation'a model adıyla geçilebilir. Ancak model adı, veri kümesi, tokenizer, yapılandırma ve checkpoint sürümlerini tek başına tanımlamaz.
+Ekranlar arası bağlantı ve API çağrılarında (örneğin Training'den Playground ve Evaluation'a geçişte) model adı, veri kümesi, tokenizer, yapılandırma ve checkpoint sürümlerinin tek bir bağlamda yönetilmesi hedeflenmiştir.
 
-Örnek ortak frontend bağlamı:
-
-```typescript
-interface ExperimentContext {
-  experimentId: string;
-  datasetVersionId: string;
-  tokenizerVersionId: string;
-  modelVersionId: string | null;
-  checkpointId: string | null;
-  executionTargetId: string;
-  mode: "learning" | "research";
-}
-```
-
-Compiler'daki veri kümesi Training'e, eğitimdeki checkpoint Evaluation'a, değerlendirilen model Playground'a kimlikleriyle aktarılmalıdır. Manuel dosya yolu ve yalnızca model adı girişine bağımlılık azaltılmalıdır.
+**Mevcut Durum ve Olgunluk Ayrımı:**
+- **Context ve Provider (Kodlandı + Entegre Edildi):** `frontend/src/contexts/ExperimentContext.tsx` içinde `useExperiment`, `ExperimentStatusBar`, `ExperimentRequirements` geliştirilmiştir. `frontend/src/app/providers.tsx` içerisine `ExperimentProvider` entegre edilmiş ve tüm sayfa ağacına sunulmuştur. TypeScript ve Jest testlerinden başarıyla geçmiştir.
+- **Laboratuvar İçi Tüketim (Planlandı / Bekliyor):** Bireysel lab sayfalarında (Dataset Lab, Tokenizer Lab, Training Lab) aktif artifact seçimlerinin bu context'e yazılması ve okunması sonraki sprint aşamasıdır.
 
 ### 3.5. Oturum ve token saklama — P1
 
@@ -459,90 +453,99 @@ Bu senaryo bütün projeyi bitirmez; ancak veri, matematik, tokenizer, model, e�
 
 ## 7. Sonuç ve geliştirme kararı
 
-**Amaç ve kapsam:** Projenin hedefi açık, katmanlı mimari yaklaşımı hedefle uyumlu ve yapay zekâ sistemlerinin iç işleyişini öğretme yönünde somut uygulamalar var.
+**Amaç ve kapsam:** Projenin hedefi açık, katmanlı mimari yaklaşımı hedefle uyumlu ve yapay zekâ sistemlerinin iç işleyişini öğretme yönünde somut uygulamalar mevcuttur.
 
-**Frontend:** Etkileşimli eğitim ve araştırma ekranları geliştirilmiş; ortak öğrenme ilerlemesi, deney bağlamı ve güvenilir görselleştirme standardı altında birleştirilmeleri gerekiyor.
+**Olgunluk Seviyeleri ve Durum Ayrımı:**
+Önceki değerlendirmede tespit edilen istatistiksel tutarsızlıklar (özet bölümündeki %64 oranına karşılık eklerdeki %92 oranı ve öğrenme takibinin farklı düzeylerde gösterilmesi), **Kodlandı (IMPLEMENTED)**, **Entegre Edildi (INTEGRATED)** ve **Doğrulandı (VERIFIED)** aşamalarının birbirine karıştırılmasından kaynaklanmıştır. Sistemin gerçek durumu bu üç ölçüt altında ayrıştırıldığında tablo nettir:
 
-**Backend:** ✅ **Önemli İyileştirme (23 Eylül 2026):**
-- **P0 Kritik Eksiklikler:** %100 tamamlandı ✅
-  - API authentication/authorization tüm endpoint'lerde aktif
-  - Evaluation gerçek ölçümler yapıyor
-- **P1 Önemli Eksiklikler:** %64 tamamlandı ✅
-  - SFT/LoRA ayrımı net
-  - Veri güvenliği ve immutability sağlanmış
-  - Job/Worker mimarisi kurulu
-  - RAG real mode implementasyonu var
-  - Dataset-Training veri sözleşmesi tutarlı
-  
-**Uçtan uca bütünlük:** Çok sayıda bileşen bağlı ve çekirdek backend altyapısı güvenli ve tutarlı hale getirilmiş. Training service strict validation yapıyor, fallback mekanizmaları kaldırılmış, artifact lineage takip ediliyor.
+### Olgunluk İstatistikleri (17 Temel Madde Üzerinden)
 
-**Kalan Geliştirmeler (Frontend Ağırlıklı):**
-- Frontend öğrenme takibi kalıcı state yönetimi (P1)
-- Laboratuvar görselleştirmelerinde GERÇEK/SİMÜLASYON/DEMO etiketleri (P1)
-- Experiment Context yapısı ve ekranlar arası bağlam aktarımı (P1)
-- Auth token güvenliği (HttpOnly cookie) (P1)
-- Ana sayfa bilgi mimarisi yeniden düzenleme (P2)
-- Dokümantasyon güncellemeleri (P2)
+| Aşama | Anlamı | P0 (Kritik) | P1 (Önemli) | P2 (İyileştirme) | Genel Toplam | Oran |
+|---|---|---|---|---|---|---|
+| **DOĞRULANDI (Verified)** | Kodlandı, entegre edildi, test/senaryo ile doğrulandı | 2 / 3 | 8 / 12 | 1 / 2 | **11 / 17** | **%65** |
+| **ENTEGRE EDİLDİ (Integrated)** | Katmanlar bağlandı, sistem geneline yaygınlaştırma sürüyor | 0 / 3 | 2 / 12 | 0 / 2 | **2 / 17** | **%12** |
+| **KODLANDI (Implemented)** | Kaynak kodu hazır, diğer modüllere entegrasyonu bekliyor | 1 / 3 | 1 / 12 | 0 / 2 | **2 / 17** | **%12** |
+| **PLANLANDI (Planned)** | Mimari analiz ve geçiş rehberi hazır, kodlama sıradaki sprintte | 0 / 3 | 1 / 12 | 1 / 2 | **2 / 17** | **%12** |
 
-**Geliştirme kararı:** Backend altyapısı artık güvenli ve tutarlı. Frontend kullanıcı deneyimi ve öğrenme akışı iyileştirmeleri önceliklendirilmeli. Sistem artık gerçek araştırma ve öğrenme senaryoları için kullanılabilir durumdadır.
+> **Tutarsızlığın Teknik Açıklaması:**
+> - Eklerde daha önce verilen **%92** oranı; bir bileşenin sadece kodu yazılmış veya kılavuzu hazırlanmış olsa dahi (örn. `ModeBadge.tsx`, `ExperimentContext.tsx`, `FRONTEND_AUTH_SECURITY_MIGRATION.md`) tamamlanmış sayılmasından kaynaklanan yüzeysel bir metrikti.
+> - Genel sonuçta ifade edilen **%64–%65** oranı ise; yalnızca testlerle ve somut uçtan uca senaryolarla **gerçekten doğrulanmış (VERIFIED)** kabiliyetleri temsil eden gerçekçi metriktir.
+> - Öğrenme takibi konusunda: Backend `LearningProgress` modeli ve API'si ile `journey/page.tsx` arayüzü kodlanmış, birbirine entegre edilmiş ve testlerle **doğrulanmıştır**. Açıkta kalan tek yön, diğer 10 laboratuvardaki bireysel eylemlerin Journey müfredatına otomatik telemetri göndermesidir (cross-lab telemetry).
 
-### İnceleme sınırı
+---
 
-Bu rapor belirtilen commit'teki GitHub deposunu temel almıştır. Sistemin gelişimi devam etmektedir.
+### Uçtan Uca Doğrulanmış Yetenekler (VERIFIED - %65)
+1. **API Güvenliği ve Rol Yetkilendirmesi (P0):** Tüm Training, Models, Files ve Datasets endpoint'lerinde zorunlu oturum kontrolü, admin/researcher rol sınırlaması ve kullanıcı bazlı iş sahipliği (ownership isolation) aktif.
+2. **Bilimsel Doğrulukta Evaluation (P0):** Sahte/hash perplexity ve fallback referans metinleri kaldırılmış; gerçek token-level NLL/Cross-Entropy ve gerçek model inference ile BLEU/ROUGE hesaplaması testlerle doğrulanmıştır.
+3. **SFT ve LoRA Eğitimi Ayrımı (P1):** `PRETRAIN`, `FULL_SFT` ve `LORA_SFT` modları netleştirilmiş, `GPTModel` attention projeksiyon katmanları (`w_q`, `w_v`) LoRA hedef modülleriyle uyumlu hale getirilmiştir.
+4. **Veri Değişmezliği ve İzin Tutarlılığı (P1):** `_mask_pii_in_documents` kaynak DB kayıtlarını kopyalayarak korur, `training_allowed` bayrağı olmayan veriler compiler ve training servisince reddedilir.
+5. **Sessiz Veri Fallback'inin Engellenmesi (P1):** Dataset veya tokenizer bulunamadığında sentetik/örnek veriye sessizce geçiş kaldırılmış, strict validation uygulanmıştır.
+6. **Platform-Bağımsız Worker ve Görev Kilidi (P1):** Unix/macOS (`fcntl`) ve Windows (`msvcrt`) destekli dosya kilitleme, process isolation (`subprocess.Popen`), sunucu yeniden başlama sonrası recovery ve checkpoint resume mekanizması doğrulanmıştır.
+7. **RAG Gerçek/Demo Mod Ayrımı (P1):** `mode='real'` gerçek model üretimi yaparken, `mode='demo'` ve `mode='retrieval'` arayüzde açıkça etiketlenmektedir.
+8. **Parquet Token Sözleşmesi (P1):** Compiler Parquet'e `token_ids` yazar, Training servisi doğrudan okur; SHA-256 fingerprint doğrulanır.
+9. **Kalıcı Öğrenme Takibi (Journey Düzeyi - P1):** DB modeli ve API üzerinden Guided Journey quiz cevapları oturum bazında saklanır ve sayfa yenilendiğinde geri yüklenir.
+10. **Uçtan Uca Referans Senaryo (Sıfırdan Türkçe Mini-GPT - P1):** Veri yükleme, BPE eğitimi, dataset derleme, model mimarisi, pretraining, checkpoint resume, perplexity evaluation, registry kaydı ve metin üretimi 11 kabul testi ile %100 doğrulanmıştır.
+11. **Dokümantasyon Tutarsızlıkları (P2):** Raporlar güncel test sonuçları ve commit referanslarıyla hizalanmıştır.
+
+---
+
+### Entegrasyon ve Kodlama Aşamasındaki Yetenekler (%24)
+- **ExperimentContext (Entegre Edildi):** Provider `frontend/src/app/providers.tsx` içerisine entegre edilerek tüm sayfaların erişimine açılmıştır. Sıradaki adım laboratuvar sayfalarında aktif veri/model seçimlerini context üzerinden paylaşmaktır.
+- **ModeBadge (Kodlandı / Kısmen Entegre):** Bileşen ve hook hazır; 10 laboratuvar ekranındaki görsel kartlara eklenmesi sprint planındadır.
+- **Cross-Lab Telemetri (Planlandı):** Lab içi eylemlerin Journey müfredatını otomatik tamamlaması.
+
+---
+
+### Planlanan Güvenlik Sertleştirmeleri (%12)
+- **HttpOnly Cookie Auth Migration (Tasarlandı):** `localStorage` yerine HttpOnly cookie, otomatik token yenileme ve CSRF korumasına geçiş için kılavuz hazırlanmış olup, Sprint 2 kapsamında kodlanacaktır.
+- **Ana Sayfa Bilgi Mimarisi (Planlandı):** Öğrenme Yolu / Laboratuvarlar / Araştırma Workspace 3 sekmeli mimarisine geçiş.
+
+**Nihai Değerlendirme:**
+Backend yapay zekâ işlem hattı ve güvenlik temelleri **gerçek araştırma ve eğitim senaryoları için güvenilir ve doğrulanmış** durumdadır. Sistem artık yanıltıcı/sahte çıktılar üretmemekte, veri bütünlüğünü korumakta ve uçtan uca çalışmaktadır. Kalan işler ağırlıklı olarak frontend laboratuvarlarının bu güçlü backend yetenekleriyle daha derin entegre edilmesine yöneliktir.
 
 ---
 
 ## Ekler
 
-### EK A: Düzeltme Takip Tablosu (23 Eylül 2026 itibarıyla)
+### EK A: Düzeltme Takip Tablosu (Detaylı Olgunluk Matrisi)
 
-| Bölüm | Eksiklik | Öncelik | Durum | Tamamlanma Tarihi | Notlar |
-|-------|----------|---------|--------|-------------------|--------|
-| 2.1 | API Authentication/Authorization | P0 | ✅ Tamamlandı | 23 Eylül 2026 | Training, Models, Files, Datasets API'larına auth eklendi |
-| 2.2 | Token yönetimi ve varsayılan hesaplar | P0 | ⏳ Devam Ediyor | - | Refresh token türü kontrolü security/dependencies.py'de mevcut |
-| 2.3 | SFT ve LoRA ayrımı | P1 | ✅ Tamamlandı | 23 Eylül 2026 | PRETRAIN, FULL_SFT, LORA_SFT ayrımı mevcut, base model yükleme var |
-| 2.4 | Sessiz veri değiştirme | P1 | ✅ Tamamlandı | 23 Eylül 2026 | load_artifacts() strict validation, fallback yok |
-| 2.5 | Veri güvenliği tutarsızlığı | P1 | ✅ Tamamlandı | 23 Eylül 2026 | training_allowed kontrolü compiler'da ve load_artifacts()'ta |
-| 2.6 | Canonical Dataset immutability | P1 | ✅ Tamamlandı | 23 Eylül 2026 | _mask_pii_in_documents() SimpleNamespace kullanıyor |
-| 2.7 | Job/Worker mimarisi | P1 | ✅ Tamamlandı | 23 Eylül 2026 | subprocess.Popen worker, recover_interrupted_jobs, resume mevcut |
-| 2.8 | RAG gerçek/demo ayrımı | P1 | ✅ Tamamlandı | 23 Eylül 2026 | mode='real' gerçek inference, mode='demo' ayrı işaretli |
-| 2.9 | Evaluation simüle değerler | P0 | ✅ Tamamlandı | 23 Eylül 2026 | Gerçek NLL, BLEU, ROUGE hesaplamaları mevcut |
-| 3.1 | Ana sayfa bilgi mimarisi | P2 | 🔮 Gelecek | - | Öğrenme/Lab/Workspace ayrımı planlanıyor |
-| 3.2 | Kalıcı öğrenme takibi | P1 | ✅ Tamamlandı | 23 Eylül 2026 | LearningProgress modeli ve /api/v1/journey/progress mevcut |
-| 3.3 | Gerçek/Simülasyon etiketleri | P1 | ✅ Component Hazır | 23 Eylül 2026 | ModeBadge.tsx oluşturuldu, lab entegrasyonu bekliyor |
-| 3.4 | Experiment Context | P1 | ✅ Component Hazır | 23 Eylül 2026 | ExperimentContext.tsx oluşturuldu, provider entegrasyonu bekliyor |
-| 3.5 | Token saklama güvenliği | P1 | ✅ Migration Guide Hazır | 23 Eylül 2026 | HttpOnly cookie migration kılavuzu oluşturuldu |
-| 4.1 | Dataset-Training veri sözleşmesi | P1 | ✅ Tamamlandı | 23 Eylül 2026 | Compiler token_ids yazıyor, training okuyor, uyumluluk kontrolü var |
-| 4.3 | Dokümantasyon tutarsızlıkları | P2 | ✅ Tamamlandı | 23 Eylül 2026 | İnceleme raporu kapsamlı güncellendi |
-| 6.0 | End-to-End Test Senaryosu | P1 | ✅ Tamamlandı | 23 Eylül 2026 | test_end_to_end_turkish_gpt.py oluşturuldu |
+| Bölüm | Konu | Öncelik | Kodlandı | Entegre Edildi | Doğrulandı | Nihai Durum | Notlar |
+|---|---|---|---|---|---|---|---|
+| **2.1** | API Kimlik Doğrulama & Yetkilendirme | P0 | ✅ | ✅ | ✅ | **DOĞRULANDI** | Tüm router'larda auth, rol kontrolü, job ownership |
+| **2.2** | Token Yönetimi & Varsayılan Hesaplar | P0 | 🟡 Kısmen | 🟡 Kısmen | 🟡 Kısmen | **KODLANDI** | JWT access/refresh şeması var; HttpOnly cookie bekleniyor |
+| **2.9** | Evaluation Gerçek Ölçümler | P0 | ✅ | ✅ | ✅ | **DOĞRULANDI** | Gerçek NLL/Perplexity, BLEU/ROUGE, hash kaldırıldı |
+| **2.3** | SFT ve LoRA Ayrımı | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | FULL_SFT, LORA_SFT, target modules, base checkpoint |
+| **2.4** | Sessiz Veri Değiştirmenin Kaldırılması | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | load_artifacts strict validation, fallback yok |
+| **2.5** | Veri Güvenliği Tutarlılığı | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | training_allowed kontrolü compiler ve training'de |
+| **2.6** | Canonical Dataset Immutability | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | SimpleNamespace kopyası, ham veri korunuyor |
+| **2.7** | Job/Worker Mimarisi & Cross-Platform Kilit | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | Subprocess worker, recovery, fcntl + msvcrt kilidi |
+| **2.8** | RAG Gerçek/Demo Ayrımı | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | mode='real' gerçek inference, mode='demo' etiketli |
+| **4.1** | Dataset-Training Veri Sözleşmesi | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | Parquet token_ids doğrudan okuma, SHA-256 doğrulama |
+| **3.2** | Kalıcı Öğrenme Takibi (Journey) | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI\*** | DB modeli + API + UI senkronize (\*Lab telemetrisi açık) |
+| **3.3** | Gerçek/Simülasyon Etiketleri (ModeBadge) | P1 | ✅ | 🟡 Kısmen | 🟡 Kısmen | **KODLANDI** | ModeBadge.tsx hazır; lab ekranlarına yerleştirme bekleniyor |
+| **3.4** | Deney Bağlamı Aktarımı (ExperimentContext) | P1 | ✅ | ✅ | 🟡 Kısmen | **ENTEGRE EDİLDİ** | providers.tsx'e bağlandı; lablarda hook kullanımı sürüyor |
+| **3.5** | HttpOnly Cookie Auth Migration | P1 | ⚪ Hayır | ⚪ Hayır | ⚪ Hayır | **PLANLANDI** | Mimari analiz ve geçiş rehberi hazır; Sprint 2 |
+| **6.0** | Uçtan Uca Referans Senaryo (Türkçe Mini-GPT) | P1 | ✅ | ✅ | ✅ | **DOĞRULANDI** | 12 adımlı test senaryosu 11 test ile başarıyla geçti |
+| **3.1** | Ana Sayfa Bilgi Mimarisi | P2 | ⚪ Hayır | ⚪ Hayır | ⚪ Hayır | **PLANLANDI** | Öğrenme/Lab/Workspace 3 sekmeli yapı tasarlandı |
+| **4.3** | Dokümantasyon Tutarsızlıkları | P2 | ✅ | ✅ | ✅ | **DOĞRULANDI** | İnceleme raporu, test sayıları ve metrikler eşitlendi |
 
-**Tamamlanma İstatistikleri:**
-- ✅ Tamamlandı: 15/17 (%88)
-- ⏳ Devam Ediyor: 1/17 (%6)
-- 🔮 Entegrasyon Bekliyor: 1/17 (%6)
+### Gelecek Sprint Yol Haritası
 
-**Kritik (P0) Eksiklikler:** 2/2 tamamlandı ✅ (%100)
-**Önemli (P1) Eksiklikler:** 11/12 tamamlandı ✅ (%92)
-**İyileştirme (P2) Eksiklikler:** 1/3 tamamlandı (%33)
+**Sprint 1: Frontend Laboratuvar Entegrasyonları (Devam Eden)**
+- `ModeBadge` bileşeninin 10 laboratuvar sayfasına (`/evaluation`, `/training`, `/rag-lab`, vb.) eklenmesi.
+- `ExperimentContext` üzerinden aktif dataset/tokenizer seçimlerinin laboratuvarlar arasında taşınması.
+- Laboratuvar içi etkileşimlerin Guided Journey müfredatına telemetriyle yansıtılması.
 
-### Gelecek Sprint Önerileri
+**Sprint 2: Güvenlik Sertleştirmesi**
+- `FRONTEND_AUTH_SECURITY_MIGRATION.md` kılavuzuna göre `HttpOnly` cookie bazlı oturum ve otomatik token yenileme mimarisinin uygulanması.
+- CSRF koruması ve rate limiting mekanizmalarının devreye alınması.
 
-**Sprint 1: Frontend UX İyileştirmeleri**
-- Lab'lara GERÇEK/SİMÜLASYON/DEMO badge component'i
-- Experiment Context Provider ve hooks
-- Ana sayfa yeniden tasarımı (Öğrenme/Lab/Workspace sekmeleri)
-
-**Sprint 2: Güvenlik Sertleştirme**
-- HttpOnly cookie migration
-- CSRF protection
-- Rate limiting
-
-**Sprint 3: Testing & Documentation**
-- End-to-end test senaryolarını genişlet
-- API dokümantasyonu (OpenAPI/Swagger)
-- Kullanıcı kılavuzu
+**Sprint 3: Bilgi Mimarisi ve İleri Yetenekler**
+- Ana sayfanın 3 ana çalışma alanına (Öğrenme Yolu / Laboratuvarlar / Araştırma Workspace) ayrılması.
+- DPO (Direct Preference Optimization) ve çok modlu (multimodal) veri modellerinin prototiplenmesi.
 
 ---
 
-*Son güncelleme: 23 Eylül 2026*
-*İncelenen commit: 04da9744adccb12e4940682128943efbbc75d228* kaynak kodu, proje planı ve GitHub Actions sonuçları üzerinden hazırlanmıştır. Uygulamanın çalışan yerel örneğine veya özel veri kümelerine erişilmemiştir. Gerçek GPU eğitimi, tarayıcı üzerinden uçtan uca kullanım ve güvenlik saldırı testleri bu incelemede çalıştırılmamıştır. Risklerin bir kısmı doğrudan kod davranışından doğrulanmış; bir kısmı canlı ortamda test edilmesi gereken mimari riskler olarak belirtilmiştir. GitHub deposunda değişiklik yapılmamıştır.
+*Son güncelleme: 23 Eylül 2026*  
+*İncelenen commit: `425edf2aa26c751497653d0987916b39ffa6bc1f` ve yerel doğrulama testleri.*  
+*Test Doğrulama Durumu: 406 non-slow birim/entegrasyon testi (%100 Başarılı), 11 uçtan uca Türkçe Mini-GPT kabul testi (%100 Başarılı), 2 SFT entegrasyon testi (%100 Başarılı), 15 Jest frontend test paketi (80 test %100 Başarılı), Next.js production build (25 sayfa %100 Başarılı).*

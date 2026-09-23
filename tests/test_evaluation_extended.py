@@ -260,8 +260,25 @@ def test_turkish_benchmarks_and_metrics():
     assert qa_ds.name == "turkish_qa"
 
 
-def test_radar_comparison_api(client):
+def test_radar_comparison_api(client, monkeypatch):
     """Test POST /api/v1/evaluation/radar-comparison endpoint with 6 dimensions."""
+    from src.evaluation.benchmarks import BenchmarkResult, BenchmarkRunner
+
+    def fake_run_benchmark(self, name, **kwargs):
+        return BenchmarkResult(
+            benchmark_id="test_bm_123",
+            model_name=self.model_name,
+            benchmark_name=name,
+            score=82.5 if "small" in self.model_name else 74.0,
+            metrics={"score": 80.0},
+            timestamp=datetime.now(),
+            samples_evaluated=8
+        )
+
+    import backend.routers.evaluation as eval_router
+    monkeypatch.setattr(eval_router.BenchmarkRunner, "__init__", lambda self, model_name, device="cpu": setattr(self, "model_name", model_name))
+    monkeypatch.setattr(eval_router.BenchmarkRunner, "run_benchmark", fake_run_benchmark)
+
     payload = {
         "model_names": ["nano-gpt-v1", "turkish-gpt-small"]
     }

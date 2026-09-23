@@ -156,10 +156,13 @@ def list_training_jobs(
     current_user: UserRecord = Depends(get_current_user)
 ) -> List[TrainingJobResponse]:
     """
-    Tüm eğitim işlerini listeler.
+    Eğitim işlerini listeler. Admin tüm işleri, diğer kullanıcılar sadece kendi işlerini görür.
     """
     TrainingService(db).recover_interrupted_jobs()
-    jobs = db.query(TrainingJob).order_by(TrainingJob.created_at.desc()).limit(limit).all()
+    query = db.query(TrainingJob)
+    if current_user.role != "admin":
+        query = query.filter(TrainingJob.user_id == current_user.user_id)
+    jobs = query.order_by(TrainingJob.created_at.desc()).limit(limit).all()
     return [TrainingJobResponse(**job.to_dict()) for job in jobs]
 
 
@@ -175,6 +178,9 @@ def get_training_job(
     job = db.query(TrainingJob).filter(TrainingJob.job_id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Eğitim işi bulunamadı")
+
+    if current_user.role != "admin" and job.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Bu eğitim işine erişim yetkiniz yok")
 
     return TrainingJobResponse(**job.to_dict())
 
@@ -210,16 +216,25 @@ def resume_training(
     db: Session = Depends(get_db),
     current_user: UserRecord = Depends(require_role("admin", "researcher"))
 ):
+    job = db.query(TrainingJob).filter(TrainingJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Eğitim işi bulunamadı")
+    
+    # Yetki kontrolü işlem başlatılmadan ÖNCE yapılmalı (P0 Güvenlik Düzeltmesi)
+    if current_user.role != "admin" and job.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Bu işi devam ettirme yetkiniz yok")
+
     try:
-        job = TrainingService(db).resume_job(job_id)
-        
-        # Kullanıcı yalnızca kendi işini veya admin ise herhangi bir işi devam ettirebilir
-        if current_user.role != "admin" and job.user_id != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Bu işi devam ettirme yetkiniz yok")
-            
-        return TrainingJobResponse(**job.to_dict())
+        resumed_job = TrainingService(db).resume_job(
+            job_id,
+            user_id=current_user.user_id,
+            is_admin=(current_user.role == "admin")
+        )
+        return TrainingJobResponse(**resumed_job.to_dict())
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe)) from pe
     except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/jobs/{job_id}/report")
@@ -231,4 +246,6 @@ def experiment_report(
     job = db.query(TrainingJob).filter_by(job_id=job_id).first()
     if not job:
         raise HTTPException(404, "Experiment not found")
+    if current_user.role != "admin" and job.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Bu rapora erişim yetkiniz yok")
     return job.to_dict()

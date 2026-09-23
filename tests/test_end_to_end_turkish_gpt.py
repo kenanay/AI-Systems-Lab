@@ -234,7 +234,7 @@ class TestEndToEndTurkishGPT:
         
         # Test için split assign et (content-based deterministic split)
         # split_for_text fonksiyonu content hash'e göre split belirler
-        split_info = split_for_text(doc_record.content)
+        split_info = split_for_text(doc_record.text)
         
         print(f"✓ Split assigned: {split_info}")
         print(f"✓ Split işlemi tamamlandı")
@@ -267,7 +267,7 @@ class TestEndToEndTurkishGPT:
         # TokenizerRecord oluştur
         tokenizer_record = TokenizerRecord(
             tokenizer_id=f"TEST-TOK-{int(time.time())}",
-            tokenizer_name=TEST_TOKENIZER_NAME,
+            name=TEST_TOKENIZER_NAME,
             tokenizer_type="BPE",
             vocab_size=tokenizer.vocab_size,
             storage_path=str(tokenizer_path),
@@ -337,8 +337,10 @@ class TestEndToEndTurkishGPT:
         # DatasetVersion oluştur
         dataset_record = DatasetVersion(
             dataset_id=f"TEST-DS-{int(time.time())}",
-            dataset_name=f"turkish-test-{TEST_DATASET_VERSION}",
+            name=f"turkish-test-{TEST_DATASET_VERSION}",
             version=TEST_DATASET_VERSION,
+            compiler_version="1.0.0",
+            num_documents=result['stats']['final_count'],
             tokenizer_id=TestEndToEndTurkishGPT.tokenizer_id,
             storage_path=result['output_path'],
             is_active=True,

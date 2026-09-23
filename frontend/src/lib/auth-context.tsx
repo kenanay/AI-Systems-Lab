@@ -37,19 +37,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    let isMounted = true;
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     axios.get(`${API_BASE_URL}/api/v1/auth/me`, { withCredentials: true })
-      .then(res => setUser(res.data.user))
+      .then(res => {
+        if (isMounted) setUser(res.data.user);
+      })
       .catch(async () => {
         try {
           await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {}, { withCredentials: true });
           const res = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, { withCredentials: true });
-          setUser(res.data.user);
-        } catch { setUser(null); }
+          if (isMounted) setUser(res.data.user);
+        } catch {
+          if (isMounted) setUser(prev => (prev ? prev : null));
+        }
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Oturum açma
@@ -88,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Oturumu kapatma
   const logout = useCallback(() => {
-    void axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true });
+    axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true }).catch(() => {});
     queryClient.clear();
     setUser(null);
     setToken(null);

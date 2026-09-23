@@ -11,6 +11,20 @@ from backend.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def setup_active_inference_model():
+    from backend.routers.inference import manager
+    from src.model.gpt import GPTModel, GPTConfig
+    from src.tokenizer.bpe import BPETokenizer
+
+    tok = BPETokenizer(vocab_size=260)
+    tok.train(["Yapay zeka ve derin öğrenme", "Transformer mimarisinde attention", "Test streaming"])
+    cfg = GPTConfig(vocab_size=tok.vocab_size, max_seq_len=64, d_model=32, n_layers=2, n_heads=2, d_ff=64)
+    manager.model = GPTModel(cfg)
+    manager.tokenizer = tok
+    manager.model_name = "test-gpt-mini"
+
+
 def test_models_list_api() -> None:
     """Test GET /api/v1/models"""
     response = client.get("/api/v1/models")
@@ -35,7 +49,7 @@ def test_training_jobs_list_api() -> None:
 
 
 def test_start_training_api_validation() -> None:
-    """Test POST /api/v1/training/start validation"""
+    """Test POST /api/v1/training/start validation on missing dataset and tokenizer."""
     payload = {
         "job_name": "Test Mini Run",
         "model_name": "gpt-test-tiny",
@@ -49,18 +63,8 @@ def test_start_training_api_validation() -> None:
         "max_seq_len": 32
     }
     response = client.post("/api/v1/training/start", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-    assert "job_id" in data
-    assert data["job_name"] == "Test Mini Run"
-    assert data["status"] in ["PENDING", "RUNNING", "COMPLETED"]
-
-    # Test job detail
-    job_id = data["job_id"]
-    detail_res = client.get(f"/api/v1/training/jobs/{job_id}")
-    assert detail_res.status_code == 200
-    detail = detail_res.json()
-    assert detail["job_id"] == job_id
+    assert response.status_code == 422
+    assert "detail" in response.json()
 
 
 def test_delete_nonexistent_model_api() -> None:

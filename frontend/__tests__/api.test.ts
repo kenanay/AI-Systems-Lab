@@ -12,9 +12,32 @@ jest.mock('axios', () => {
       request: { use: jest.fn() },
       response: { use: jest.fn() },
     },
+    defaults: { withCredentials: true, headers: { common: {} } },
   };
   return {
+    __esModule: true,
+    default: {
+      create: jest.fn(() => mAxiosInstance),
+      defaults: { withCredentials: true, headers: { common: {} } },
+      get: jest.fn(),
+      post: jest.fn(),
+      put: jest.fn(),
+      delete: jest.fn(),
+      interceptors: {
+        request: { use: jest.fn() },
+        response: { use: jest.fn() },
+      },
+    },
     create: jest.fn(() => mAxiosInstance),
+    defaults: { withCredentials: true, headers: { common: {} } },
+    get: jest.fn(),
+    post: jest.fn(),
+    put: jest.fn(),
+    delete: jest.fn(),
+    interceptors: {
+      request: { use: jest.fn() },
+      response: { use: jest.fn() },
+    },
   };
 });
 

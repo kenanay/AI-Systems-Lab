@@ -80,7 +80,7 @@ class TrainingService:
         self.checkpoints_base_dir = Path('checkpoints')
         self.checkpoints_base_dir.mkdir(exist_ok=True)
 
-    def create_job(self, job_name, model_name, job_type='PRETRAIN', dataset_id=None, tokenizer_id=None, config=None):
+    def create_job(self, job_name, model_name, job_type='PRETRAIN', dataset_id=None, tokenizer_id=None, config=None, user_id=None):
         config = dict(config or {})
         job_type = {'SFT': 'FULL_SFT', 'SFT_LORA': 'LORA_SFT'}.get(job_type, job_type)
         if job_type not in {'PRETRAIN', 'FULL_SFT', 'LORA_SFT'}:
@@ -96,13 +96,16 @@ class TrainingService:
                 raise ValueError('Base model tokenizer does not match dataset')
             config['base_checkpoint_sha256'] = artifact_hash(info['checkpoint_path'])
         actor = principal.get()
+        effective_user_id = user_id or (actor.user_id if actor else None)
         config['owner_role'] = actor.role if actor else 'admin'
+        config['owner_id'] = effective_user_id
         config['mode'] = 'real'
         job_id = f'TRN-{uuid.uuid4().hex[:12]}'
         job = TrainingJob(job_id=job_id, job_name=job_name, model_name=model_name, job_type=job_type,
                           dataset_id=dataset_id, tokenizer_id=tokenizer_id, config=config,
                           total_epochs=config.get('epochs', 3), status='PENDING', metrics=[],
-                          output_dir=str(self.checkpoints_base_dir / job_id))
+                          output_dir=str(self.checkpoints_base_dir / job_id),
+                          owner_id=effective_user_id)
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
@@ -149,9 +152,13 @@ class TrainingService:
                 pass
         self.db.commit()
 
-    def resume_job(self, job_id):
+    def resume_job(self, job_id, user_id=None, is_admin=False):
         job = self.db.query(TrainingJob).filter_by(job_id=job_id).first()
-        if not job or not (Path(job.output_dir) / 'resume.pt').exists():
+        if not job:
+            raise ValueError('Training job not found')
+        if user_id is not None and not is_admin and job.user_id != user_id:
+            raise PermissionError('Bu işi devam ettirme yetkiniz yok')
+        if not (Path(job.output_dir) / 'resume.pt').exists():
             raise ValueError('No resumable checkpoint exists')
         job.config = {**job.config, 'resume': True}
         self.db.commit()
@@ -215,7 +222,8 @@ class TrainingService:
         if job.job_type == 'LORA_SFT':
             for param in model.parameters():
                 param.requires_grad = False
-            model = add_lora_to_model(model, LoRAConfig(rank=cfg.get('lora_r',8), alpha=cfg.get('lora_alpha',16)))
+            target_modules = cfg.get('target_modules') or ['q_proj', 'v_proj', 'w_q', 'w_v']
+            model = add_lora_to_model(model, LoRAConfig(rank=cfg.get('lora_r',8), alpha=cfg.get('lora_alpha',16), target_modules=target_modules))
             if not any(p.requires_grad for p in model.parameters()):
                 raise ValueError('No LoRA target layers found')
         device = cfg.get('device', 'cpu')

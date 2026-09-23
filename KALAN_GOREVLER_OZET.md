@@ -52,10 +52,8 @@ const mode = useOperationMode(apiResponse);
 
 **Entegrasyon Adımları:**
 
-#### 2.1. Provider Ekle (5 dk)
-```tsx
-// frontend/src/app/layout.tsx
-import { ExperimentProvider } from '@/contexts/ExperimentContext';
+#### 2.1. Provider Ekle ✅ TAMAMLANDI
+`frontend/src/app/providers.tsx` içerisine `ExperimentProvider` entegre edilmiştir. RootLayout altındaki tüm sayfalar artık provider kapsamındadır.
 
 export default function RootLayout({ children }) {
   return (

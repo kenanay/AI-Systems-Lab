@@ -65,7 +65,7 @@ class TokenizerResponse(BaseModel):
     vocab_size: int
     num_merges: Optional[int] = None
     special_tokens: List[str]
-    num_training_documents: int
+    num_training_documents: int = 0
     training_duration_seconds: Optional[float] = None
     is_active: bool
     created_at: str
@@ -79,7 +79,7 @@ class TokenizerListResponse(BaseModel):
     name: str
     tokenizer_type: str
     vocab_size: int
-    num_training_documents: int
+    num_training_documents: int = 0
     is_active: bool
     created_at: str
     tags: Optional[List[str]] = None
@@ -286,7 +286,7 @@ async def list_tokenizers(
             name=tok["name"],
             tokenizer_type=tok["tokenizer_type"],
             vocab_size=tok["vocab_size"],
-            num_training_documents=tok["num_training_documents"],
+            num_training_documents=tok.get("num_training_documents") or 0,
             is_active=tok["is_active"],
             created_at=tok["created_at"].isoformat(),
             tags=tok["tags"]
@@ -323,7 +323,7 @@ async def get_tokenizer(
         vocab_size=tokenizer["vocab_size"],
         num_merges=tokenizer["num_merges"],
         special_tokens=tokenizer["special_tokens"] or [],
-        num_training_documents=tokenizer["num_training_documents"],
+        num_training_documents=tokenizer.get("num_training_documents") or 0,
         training_duration_seconds=tokenizer["training_duration_seconds"],
         is_active=tokenizer["is_active"],
         created_at=tokenizer["created_at"].isoformat(),

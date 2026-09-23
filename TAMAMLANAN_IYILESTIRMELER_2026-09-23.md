@@ -8,16 +8,16 @@
 
 ## 📊 Genel Özet
 
-### Tamamlanma İstatistikleri
+### Tamamlanma ve Olgunluk İstatistikleri (17 Temel Madde)
 
-| Kategori | Tamamlanan | Toplam | Oran |
-|----------|------------|--------|------|
-| **Kritik (P0)** | 2 | 2 | ✅ **100%** |
-| **Önemli (P1)** | 11 | 12 | ✅ **92%** |
-| **İyileştirme (P2)** | 1 | 3 | **33%** |
-| **TOPLAM** | 15 | 17 | ✅ **88%** |
+| Olgunluk Düzeyi | P0 (Kritik) | P1 (Önemli) | P2 (İyileştirme) | Genel Toplam | Oran |
+|---|---|---|---|---|---|
+| **DOĞRULANDI (Verified)** | 2 / 3 | 8 / 12 | 1 / 2 | **11 / 17** | **%65** |
+| **ENTEGRE EDİLDİ (Integrated)** | 0 / 3 | 2 / 12 | 0 / 2 | **2 / 17** | **%12** |
+| **KODLANDI (Implemented)** | 1 / 3 | 1 / 12 | 0 / 2 | **2 / 17** | **%12** |
+| **PLANLANDI (Planned)** | 0 / 3 | 1 / 12 | 1 / 2 | **2 / 17** | **%12** |
 
-**Component'ler Hazır:** 3 frontend component entegrasyon bekliyor
+> **Metrik Senkronizasyonu:** Daha önceki taslaklarda yer alan %92 oranı, henüz lablara bağlanmamış veya kılavuz aşamasındaki maddelerin (ModeBadge, ExperimentContext, HttpOnly migration) "kodlandı" olarak sayılıp doğrudan tamamlandı kabul edilmesinden ileri gelmekteydi. Yalnızca testlerle ve canlı senaryolarla doğrulanmış gerçek yeteneklerin oranı **%65 (11/17)**'tir.
 
 ---
 
@@ -278,11 +278,11 @@ function TrainingLab() {
 }
 ```
 
-**Kalan İş:** 
-- layout.tsx'e provider ekle
-- Lab'larda artifact seçimi için kullan
+**Mevcut Durum:** 
+- ✅ `frontend/src/app/providers.tsx` içerisine `ExperimentProvider` entegre edildi
+- ⏳ Lab'larda aktif artifact seçimi ve context tüketimi sonraki sprintte
 
-**Impact:** 🔗 Lab'lar arası bağlam aktarımı
+**Impact:** 🔗 Lab'lar arası bağlam aktarımı altyapısı hazırlandı ve entegre edildi
 
 ---
 

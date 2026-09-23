@@ -273,7 +273,7 @@ class TokenizerTrainingService:
             
             for doc in documents:
                 from src.dataset.splits import split_for_text
-                if doc.text and doc.file.training_allowed and split_for_text(doc.text) == "train":
+                if doc.text and getattr(doc, "file", None) and getattr(doc.file, "training_allowed", False) and split_for_text(doc.text) == "train":
                     texts.append(doc.text)
             
             logger.info(f"Collected {len(texts)} texts from {len(file_ids)} files")

@@ -68,8 +68,8 @@ def _get_or_create_pipeline(collection_name: str = "default") -> RAGPipeline:
             d_model=embedder.d_model
         )
         
-        # Eğer default koleksiyon boşsa, kullanıcıya hazır zengin bir örnek külliyat ilklendir
-        if collection_name.endswith("--demo") and v_store.count == 0:
+        # Eğer default veya demo koleksiyon boşsa, kullanıcıya hazır zengin bir örnek külliyat ilklendir
+        if (collection_name.endswith("--default") or collection_name.endswith("--demo")) and v_store.count == 0:
             _seed_default_knowledge_base(pipeline)
             
         _COLLECTIONS[collection_name] = pipeline
@@ -210,7 +210,7 @@ class SearchResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    mode: Literal["real", "demo", "retrieval"] = "retrieval"
+    mode: Literal["real", "demo", "retrieval"] = "demo"
     model_name: Optional[str] = None
     model_version: Optional[str] = None
     question: str = Field(..., min_length=1, description="Kullanıcı sorusu")
