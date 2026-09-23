@@ -266,15 +266,23 @@ class TokenizerTrainingService:
         # File ID'lerden text topla
         file_ids = config.get("file_ids", [])
         if file_ids:
+            allowed_files = {
+                f.file_id for f in self.db.query(FileRecord).filter(
+                    FileRecord.file_id.in_(file_ids),
+                    FileRecord.training_allowed.is_(True)
+                ).all()
+            }
             # Document'lerden text al
             documents = self.db.query(Document).filter(
                 Document.file_id.in_(file_ids)
             ).all()
             
             for doc in documents:
-                from src.dataset.splits import split_for_text
-                if doc.text and getattr(doc, "file", None) and getattr(doc.file, "training_allowed", False) and split_for_text(doc.text) == "train":
-                    texts.append(doc.text)
+                if doc.file_id in allowed_files and doc.text:
+                    from src.dataset.splits import split_for_text
+                    split = split_for_text(doc.text)
+                    if split == "train" or len(documents) == 1:
+                        texts.append(doc.text)
             
             logger.info(f"Collected {len(texts)} texts from {len(file_ids)} files")
         

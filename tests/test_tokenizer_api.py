@@ -24,7 +24,7 @@ def client() -> Generator[TestClient, None, None]:
         yield test_client
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_test_document():
     """Ensure a FileRecord and DocumentRecord with file_id FILE-ED8B9094 exists for tokenizer training tests."""
     from backend.database import SessionLocal, init_db
@@ -32,9 +32,7 @@ def setup_test_document():
     init_db()
     db = SessionLocal()
     try:
-        file = db.query(FileRecord).filter(
-            (FileRecord.file_id == "FILE-ED8B9094") | (FileRecord.sha256 == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-        ).first()
+        file = db.query(FileRecord).filter_by(file_id="FILE-ED8B9094").first()
         if not file:
             file = FileRecord(
                 file_id="FILE-ED8B9094",
@@ -51,7 +49,7 @@ def setup_test_document():
             file.training_allowed = True
             db.commit()
 
-        doc = db.query(DocumentRecord).filter(DocumentRecord.file_id == "FILE-ED8B9094").first()
+        doc = db.query(DocumentRecord).filter_by(file_id="FILE-ED8B9094").first()
         if not doc:
             doc = DocumentRecord(
                 document_id="DOC-ED8B9094",
@@ -63,6 +61,7 @@ def setup_test_document():
             db.commit()
     except Exception:
         db.rollback()
+        raise
     finally:
         db.close()
     yield
