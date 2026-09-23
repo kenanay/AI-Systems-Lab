@@ -30,7 +30,8 @@ def _utc_now() -> datetime:
 def get_current_user(
     auth_header: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None,
 ) -> UserRecord:
     """
     İsteği gönderen geçerli kullanıcıyı doğrular ve döndürür.
@@ -45,6 +46,9 @@ def get_current_user(
         token_str = auth_header.credentials.strip()
     elif x_api_key:
         token_str = x_api_key.strip()
+
+    if not token_str and request is not None:
+        token_str = request.cookies.get("ailab_access")
 
     if not token_str:
         raise HTTPException(
@@ -68,6 +72,9 @@ def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"}
             )
 
+        if api_key_rec.expires_at and api_key_rec.expires_at.replace(tzinfo=timezone.utc) <= _utc_now():
+            raise HTTPException(status_code=401, detail="API key expired")
+
         # Son kullanım zamanını güncelle
         api_key_rec.last_used_at = _utc_now()
         db.commit()
@@ -80,6 +87,9 @@ def get_current_user(
                 detail="API anahtarına ait kullanıcı hesabı aktif değil.",
                 headers={"WWW-Authenticate": "Bearer"}
             )
+        if request is not None:
+            ranks = {"viewer": 0, "researcher": 1, "admin": 2}
+            request.state.effective_role = min([user.role, api_key_rec.role], key=lambda r: ranks.get(r, -1))
         return user
 
     # 2. Standart JWT Token Denetimi
@@ -91,6 +101,12 @@ def get_current_user(
             detail=f"Geçersiz veya süresi dolmuş oturum token'ı: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"}
         )
+
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Access token required")
+    from backend.models import RevokedToken
+    if payload.get("jti") and db.get(RevokedToken, payload["jti"]):
+        raise HTTPException(status_code=401, detail="Token revoked")
 
     user_id = payload.get("sub")
     if not user_id:

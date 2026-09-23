@@ -19,7 +19,11 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class FileRecord(Base):
+class OwnedResource:
+    owner_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+
+
+class FileRecord(OwnedResource, Base):
     """
     Ham dosya kaydı.
     
@@ -38,7 +42,7 @@ class FileRecord(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     
     # Hash and Integrity
-    sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     
     # Processing Information
     parser_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Hangi parser kullanıldı
@@ -76,7 +80,7 @@ class FileRecord(Base):
         return f"<FileRecord(file_id={self.file_id}, name={self.original_name})>"
 
 
-class DocumentRecord(Base):
+class DocumentRecord(OwnedResource, Base):
     """
     Parse edilmiş doküman içeriği.
     
@@ -121,7 +125,7 @@ class DocumentRecord(Base):
         return f"<DocumentRecord(document_id={self.document_id}, title={self.title})>"
 
 
-class ProcessingJob(Base):
+class ProcessingJob(OwnedResource, Base):
     """
     Uzun süren processing işleri için job tracking.
     
@@ -161,7 +165,7 @@ class ProcessingJob(Base):
 
 
 
-class TokenizerJob(Base):
+class TokenizerJob(OwnedResource, Base):
     """
     Tokenizer training job tracking.
     
@@ -206,7 +210,7 @@ class TokenizerJob(Base):
         return f"<TokenizerJob(job_id={self.job_id}, name={self.job_name}, status={self.status})>"
 
 
-class TokenizerRecord(Base):
+class TokenizerRecord(OwnedResource, Base):
     """
     Trained tokenizer metadata.
     
@@ -276,7 +280,7 @@ class TokenizerRecord(Base):
         return f"<TokenizerRecord(tokenizer_id={self.tokenizer_id}, name={self.name}, vocab_size={self.vocab_size})>"
 
 
-class DatasetVersion(Base):
+class DatasetVersion(OwnedResource, Base):
     """
     Compiled Dataset Version tracking.
     
@@ -349,7 +353,7 @@ class DatasetVersion(Base):
         return f"<DatasetVersion(dataset_id={self.dataset_id}, name={self.name}, version={self.version})>"
 
 
-class CompilationJob(Base):
+class CompilationJob(OwnedResource, Base):
     """
     Dataset Compilation Job tracking.
     
@@ -392,7 +396,7 @@ class CompilationJob(Base):
         return f"<CompilationJob(job_id={self.job_id}, name={self.job_name}, status={self.status})>"
 
 
-class TrainingJob(Base):
+class TrainingJob(OwnedResource, Base):
     """
     Model Training Job tracking (Pre-training and SFT/LoRA).
     """
@@ -444,6 +448,7 @@ class TrainingJob(Base):
 
         return {
             "job_id": str(getattr(self, "job_id", "")),
+            "config": dict(self.config or {}),
             "job_name": str(getattr(self, "job_name", "")),
             "job_type": str(getattr(self, "job_type", "")),
             "status": str(getattr(self, "status", "")),
@@ -467,7 +472,7 @@ class TrainingJob(Base):
         return f"<TrainingJob(job_id={self.job_id}, name={self.job_name}, type={self.job_type}, status={self.status})>"
 
 
-class BenchmarkRecord(Base):
+class BenchmarkRecord(OwnedResource, Base):
     """
     Model Benchmark & Evaluation Sonuç Kaydı.
     
@@ -592,3 +597,16 @@ class APIKeyRecord(Base):
     def __repr__(self) -> str:
         return f"<APIKeyRecord(id={self.key_id}, name={self.name}, prefix={self.key_prefix})>"
 
+
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class LearningProgress(OwnedResource, Base):
+    __tablename__ = "learning_progress"
+    progress_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    data: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

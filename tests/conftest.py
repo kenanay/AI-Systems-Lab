@@ -153,3 +153,22 @@ def pytest_unconfigure(config):
         exitstatus = exitstatus.value
     os._exit(int(exitstatus))
 
+
+@pytest.fixture(autouse=True)
+def authenticated_legacy_feature_tests(request):
+    """Feature suites run as an admin; security suites exercise real login and denial."""
+    if request.node.path.name in {'test_auth_and_security.py', 'test_reliability.py'}:
+        yield
+        return
+    from types import SimpleNamespace
+    from backend.main import app
+    from backend.security.dependencies import get_current_user
+    old = app.dependency_overrides.get(get_current_user)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(user_id='test-admin', role='admin')
+    try:
+        yield
+    finally:
+        if old is None:
+            app.dependency_overrides.pop(get_current_user, None)
+        else:
+            app.dependency_overrides[get_current_user] = old

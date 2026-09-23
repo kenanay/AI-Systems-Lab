@@ -34,7 +34,11 @@ export default function TrainingPage() {
   // Form State
   const [jobName, setJobName] = useState('Türkçe GPT Eğitimi #1');
   const [modelName, setModelName] = useState('gpt-turkish-tiny');
-  const [jobType, setJobType] = useState<'PRETRAIN' | 'SFT_LORA'>('PRETRAIN');
+  const [jobType, setJobType] = useState<'PRETRAIN' | 'FULL_SFT' | 'LORA_SFT'>('PRETRAIN');
+  const [baseModel, setBaseModel] = useState('');
+  const [baseVersion, setBaseVersion] = useState('');
+  const [maxSeqLen, setMaxSeqLen] = useState(128);
+  const [device, setDevice] = useState('cpu');
   const [datasetId, setDatasetId] = useState('');
   const [tokenizerId, setTokenizerId] = useState('');
   const [epochs, setEpochs] = useState(3);
@@ -104,7 +108,7 @@ export default function TrainingPage() {
         const safeModel = urlDatasetName.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
         setModelName(`${safeModel}-gpt`);
       }
-      if (urlJobType === 'SFT_LORA' || urlJobType === 'PRETRAIN') {
+      if (urlJobType === 'LORA_SFT' || urlJobType === 'PRETRAIN') {
         setJobType(urlJobType);
       }
       if (urlModelName) {
@@ -144,19 +148,15 @@ export default function TrainingPage() {
       d_model: dModel,
       n_layers: nLayers,
       n_heads: nHeads,
-      max_seq_len: 128,
-      lora_r: jobType === 'SFT_LORA' ? loraR : undefined,
+      max_seq_len: maxSeqLen,
+      device,
+      base_model: baseModel || undefined,
+      base_version: baseVersion || undefined,
+      lora_r: jobType === 'LORA_SFT' ? loraR : undefined,
     });
   };
 
-  const chartData = activeJob?.metrics && activeJob.metrics.length > 0
-    ? activeJob.metrics
-    : [
-        { step: 0, loss: 4.5, perplexity: 90 },
-        { step: 1, loss: 3.8, perplexity: 45 },
-        { step: 2, loss: 2.9, perplexity: 18 },
-        { step: 3, loss: 1.8, perplexity: 6 },
-      ];
+  const chartData = activeJob?.metrics || [];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
@@ -240,7 +240,7 @@ export default function TrainingPage() {
                   <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
                     Eğitim Yöntemi
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => setJobType('PRETRAIN')}
@@ -252,11 +252,12 @@ export default function TrainingPage() {
                     >
                       Pre-training (Sıfırdan)
                     </button>
+                    <button type="button" className="border rounded p-2" onClick={() => setJobType('FULL_SFT')}>Full SFT {jobType === 'FULL_SFT' ? '✓' : ''}</button>
                     <button
                       type="button"
-                      onClick={() => setJobType('SFT_LORA')}
+                      onClick={() => setJobType('LORA_SFT')}
                       className={`py-2 px-3 text-xs font-medium rounded-lg border transition ${
-                        jobType === 'SFT_LORA'
+                        jobType === 'LORA_SFT'
                           ? 'bg-indigo-600 text-white border-indigo-600 shadow'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
@@ -266,6 +267,12 @@ export default function TrainingPage() {
                   </div>
                 </div>
 
+                {jobType !== 'PRETRAIN' && <div className="space-y-2">
+                  <label>Temel model <input required className="border rounded p-2 w-full" value={baseModel} onChange={e => setBaseModel(e.target.value)} /></label>
+                  <label>Temel model sürümü <input required className="border rounded p-2 w-full" value={baseVersion} onChange={e => setBaseVersion(e.target.value)} /></label>
+                </div>}
+                <label>Bağlam uzunluğu <input type="number" min={4} max={8192} value={maxSeqLen} onChange={e => setMaxSeqLen(Number(e.target.value))} className="border rounded p-2 w-full" /></label>
+                <label>Cihaz <select value={device} onChange={e => setDevice(e.target.value)} className="border rounded p-2 w-full"><option value="cpu">CPU</option><option value="cuda">CUDA</option><option value="mps">Apple MPS</option></select></label>
                 {/* Dataset Seçici */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
@@ -295,7 +302,7 @@ export default function TrainingPage() {
                     onChange={(e) => setTokenizerId(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
                   >
-                    <option value="">Varsayılan Tokenizer</option>
+                    <option value="">Tokenizer seçin</option>
                     {tokenizers?.map((tok: any) => (
                       <option key={tok.tokenizer_id} value={tok.tokenizer_id}>
                         {tok.name} ({tok.tokenizer_type} - {tok.vocab_size} vocab)
@@ -352,7 +359,7 @@ export default function TrainingPage() {
                   </div>
                 </div>
 
-                {jobType === 'SFT_LORA' && (
+                {jobType === 'LORA_SFT' && (
                   <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 mt-2">
                     <label className="block text-xs font-bold text-amber-900 uppercase mb-1">
                       LoRA Rank (r)
@@ -451,6 +458,8 @@ export default function TrainingPage() {
                     </p>
                   </div>
                   <div className="flex items-center space-x-2">
+                    {['CANCELLED', 'INTERRUPTED', 'FAILED'].includes(activeJob.status) && <button onClick={async () => { await api.training.resumeJob(activeJob.job_id); await refetchJobs(); }} className="border rounded p-2">Checkpoint’ten devam et</button>}
+                    {activeJob.error && <p role="alert">{activeJob.error}</p>}
                     {activeJob.status === 'RUNNING' && (
                       <button
                         onClick={() => cancelMutation.mutate(activeJob.job_id)}
@@ -524,7 +533,7 @@ export default function TrainingPage() {
                 {/* Canlı Recharts Grafiği */}
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                   <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4">
-                    📈 Canlı Kayıp Eğrisi (Training Loss Curve)
+                    {chartData.length ? 'GERÇEK DENEY — Eğitim kaybı' : 'VERİ BEKLENİYOR — Henüz ölçüm yok'}
                   </h4>
                   <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -562,14 +571,14 @@ export default function TrainingPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
                         id="test-in-playground-btn"
-                        href={`/playground?model=${encodeURIComponent(activeJob.model_name)}`}
+                        href={`/playground?model=${encodeURIComponent(activeJob.model_name)}&version=${encodeURIComponent(activeJob.config?.model_version || "")}&experiment_id=${activeJob.job_id}&dataset_id=${activeJob.dataset_id || ""}&tokenizer_id=${activeJob.tokenizer_id || ""}`}
                         className="px-3.5 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition shadow-sm inline-flex items-center gap-1.5"
                       >
                         🎮 Playground&apos;da Test Et ➔
                       </Link>
                       <Link
                         id="evaluate-model-btn"
-                        href={`/evaluation?model=${encodeURIComponent(activeJob.model_name)}`}
+                        href={`/evaluation?model=${encodeURIComponent(activeJob.model_name)}&version=${encodeURIComponent(activeJob.config?.model_version || "")}&experiment_id=${activeJob.job_id}&dataset_id=${activeJob.dataset_id || ""}&tokenizer_id=${activeJob.tokenizer_id || ""}`}
                         className="px-3.5 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition shadow-sm inline-flex items-center gap-1.5"
                       >
                         📊 Benchmark &amp; Değerlendir ➔

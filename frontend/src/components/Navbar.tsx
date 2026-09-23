@@ -1,4 +1,5 @@
 'use client';
+import { API_BASE_URL } from '@/lib/api';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -37,9 +38,10 @@ export function Navbar() {
     let isMounted = true;
     const checkStatus = async () => {
       try {
-        const res = await fetch('/api/v1/inference/status', { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(`${API_BASE_URL}/api/v1/inference/status`, { credentials: 'include', signal: AbortSignal.timeout(3000) });
         if (res.ok && isMounted) {
-          setEngineStatus('online');
+          const state = await res.json();
+          setEngineStatus(state.ready && state.model_loaded ? 'online' : 'offline');
         } else if (isMounted) {
           setEngineStatus('offline');
         }

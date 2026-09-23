@@ -1,508 +1,353 @@
-"""
-backend/services/training_service.py
-
-Model Training Service
-
-Bu modül dil modeli eğitimi (Pre-training ve LoRA/SFT) süreçlerini yönetir:
-- Job oluşturma, başlatma ve durdurma
-- Arka planda (threading) eğitim döngüsü
-- Gerçek zamanlı metrik (loss, lr, perplexity) kaydı
-- Checkpoint yönetimi
-- Tamamlandığında Model Registry'ye otomatik kayıt
-"""
-
-import threading
-import time
-import uuid
+"""Durable, strict training orchestration. No implicit data or tokenizer fallback."""
+import copy
+import json
 import logging
-from pathlib import Path
+import math
+import os
+import random
+import subprocess
+import sys
+import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sqlalchemy.orm import Session
-
 from backend.database import SessionLocal
-from backend.models import TrainingJob, TokenizerRecord, DatasetVersion, DocumentRecord
+from backend.models import TrainingJob, TokenizerRecord, DatasetVersion, FileRecord
 from src.model.gpt import GPTModel, GPTConfig
-from src.tokenizer.bpe import BPETokenizer
-from src.tokenizer.sentencepiece_tokenizer import SentencePieceTokenizer
-from src.training.lora import LoRAConfig, add_lora_to_model, merge_lora_weights
-from src.training.sft_trainer import InstructionExample, InstructionDataset, TEMPLATES
 from src.registry.model_registry import ModelRegistry
-from src.training.lora import LoRAConfig, add_lora_to_model, merge_lora_weights
-from src.training.sft_trainer import InstructionDataset, InstructionExample
+from src.tokenizer.loading import load_tokenizer, artifact_hash
+from src.security.context import principal, Principal
+from src.training.lora import LoRAConfig, add_lora_to_model, LinearWithLoRA
+from src.training.sft_trainer import InstructionExample, InstructionDataset, TEMPLATES
 
 logger = logging.getLogger(__name__)
-
-# Global registry of active threads and cancel flags
-ACTIVE_TRAINING_JOBS: Dict[str, Dict[str, Any]] = {}
-JOBS_LOCK = threading.Lock()
+# Compatibility exports; execution state lives in the database, not here.
+ACTIVE_TRAINING_JOBS: Dict[str, Any] = {}
 
 
 class SimpleCharTokenizer:
-    """Tokenizer bulunamadığında kullanılan güvenli karakter seviyesi fallback tokenizer."""
-    def __init__(self, vocab_size: int = 500) -> None:
-        self.vocab_size = vocab_size
-
-    def encode(self, text: str, add_bos: bool = False, add_eos: bool = False, **kwargs: Any) -> List[int]:
-        toks = [ord(c) % max(10, self.vocab_size - 4) + 4 for c in text]
-        if add_bos:
-            toks = [1] + toks
-        if add_eos:
-            toks = toks + [2]
-        return toks
-
-    def decode(self, ids: List[int]) -> str:
-        return "".join(chr(i) if 32 <= i < 127 else " " for i in ids)
+    """Explicit demo-only reversible UTF-8 byte tokenizer."""
+    def __init__(self, vocab_size=260):
+        self.vocab_size = max(260, vocab_size)
+    def encode(self, text, add_bos=False, add_eos=False, **kwargs):
+        return ([1] if add_bos else []) + [b + 4 for b in text.encode('utf-8')] + ([2] if add_eos else [])
+    def decode(self, ids, **kwargs):
+        return bytes(i - 4 for i in ids if 4 <= i < 260).decode('utf-8', errors='replace')
 
 
 class SimpleTokenDataset(Dataset):
-    """Eğitim için basit sequence dataset."""
-    def __init__(self, token_ids: List[int], seq_len: int = 64) -> None:
+    def __init__(self, token_ids, seq_len=64):
+        self.chunks = [token_ids[i:i + seq_len + 1] for i in range(0, len(token_ids) - 1, seq_len)]
         self.seq_len = seq_len
-        # Chunk into sequences of seq_len + 1 (for input and target)
-        self.chunks: List[List[int]] = []
-        stride = max(1, seq_len // 2)
-        for i in range(0, len(token_ids) - seq_len - 1, stride):
-            self.chunks.append(token_ids[i:i + seq_len + 1])
-        if not self.chunks and len(token_ids) > 1:
-            # Pad if too short
-            pad_len = seq_len + 1 - len(token_ids)
-            padded = token_ids + [0] * pad_len
-            self.chunks.append(padded)
-
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.chunks)
+    def __getitem__(self, index):
+        chunk = self.chunks[index]
+        x, y = chunk[:-1], chunk[1:]
+        return (torch.tensor(x + [0] * (self.seq_len - len(x)), dtype=torch.long),
+                torch.tensor(y + [-100] * (self.seq_len - len(y)), dtype=torch.long))
 
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        chunk = torch.tensor(self.chunks[index], dtype=torch.long)
-        x = chunk[:-1]
-        y = chunk[1:]
-        return x, y
+
+def load_artifacts(db, dataset_id, tokenizer_id):
+    if not dataset_id or not tokenizer_id:
+        raise ValueError('Select a compiled dataset and tokenizer')
+    ds = db.query(DatasetVersion).filter_by(dataset_id=dataset_id, is_active=True).first()
+    tok = db.query(TokenizerRecord).filter_by(tokenizer_id=tokenizer_id, is_active=True).first()
+    if ds is None or tok is None:
+        raise ValueError('Dataset or tokenizer not found or inaccessible')
+    if ds.tokenizer_id != tokenizer_id:
+        raise ValueError('Dataset was compiled with a different tokenizer')
+    fingerprints = ds.custom_metadata or {}
+    for key, path in [('dataset_sha256', ds.storage_path), ('tokenizer_sha256', tok.storage_path)]:
+        if not fingerprints.get(key) or artifact_hash(path) != fingerprints[key]:
+            raise ValueError(f'{key} missing or mismatched; recompile dataset')
+    if not ds.source_file_ids:
+        raise ValueError('Dataset has no source permission lineage')
+    files = db.query(FileRecord).filter(FileRecord.file_id.in_(ds.source_file_ids)).all()
+    if len(files) != len(set(ds.source_file_ids)) or any(not f.training_allowed for f in files):
+        raise ValueError('Source training permission missing or revoked')
+    tokenizer = load_tokenizer(tok.storage_path)
+    return ds, tok, tokenizer, fingerprints
 
 
 class TrainingService:
-    """
-    Model Training Orchestration Service.
-    """
-    def __init__(self, db: Session) -> None:
-
+    def __init__(self, db: Session):
         self.db = db
-        self.checkpoints_base_dir = Path("checkpoints")
-        self.checkpoints_base_dir.mkdir(parents=True, exist_ok=True)
-        self.models_dir = Path("models")
-        self.models_dir.mkdir(parents=True, exist_ok=True)
-        self.registry = ModelRegistry(registry_dir=str(self.models_dir))
+        self.checkpoints_base_dir = Path('checkpoints')
+        self.checkpoints_base_dir.mkdir(exist_ok=True)
 
-    def create_job(
-        self,
-        job_name: str,
-        model_name: str,
-        job_type: str = "PRETRAIN",
-        dataset_id: Optional[str] = None,
-        tokenizer_id: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None
-    ) -> TrainingJob:
-        """Yeni bir training job oluşturur."""
-        job_id = f"TRN-{uuid.uuid4().hex[:8].upper()}"
-        config = config or {}
-
-        # Default hyperparameters
-        epochs = config.get("epochs", 3)
-        
-        job = TrainingJob(
-            job_id=job_id,
-            job_name=job_name,
-            job_type=job_type,
-            status="PENDING",
-            model_name=model_name,
-            dataset_id=dataset_id,
-            tokenizer_id=tokenizer_id,
-            config=config,
-            progress=0.0,
-            current_epoch=0,
-            total_epochs=epochs,
-            current_step=0,
-            total_steps=0,
-            metrics=[],
-            output_dir=str(self.checkpoints_base_dir / job_id),
-            created_at=datetime.now(timezone.utc)
-        )
+    def create_job(self, job_name, model_name, job_type='PRETRAIN', dataset_id=None, tokenizer_id=None, config=None):
+        config = dict(config or {})
+        job_type = {'SFT': 'FULL_SFT', 'SFT_LORA': 'LORA_SFT'}.get(job_type, job_type)
+        if job_type not in {'PRETRAIN', 'FULL_SFT', 'LORA_SFT'}:
+            raise ValueError('Unsupported training type')
+        ModelRegistry._validate_identifier(model_name)
+        ds, tok, tokenizer, fingerprints = load_artifacts(self.db, dataset_id, tokenizer_id)
+        config.update(fingerprints)
+        if job_type != 'PRETRAIN':
+            if not config.get('base_model') or not config.get('base_version'):
+                raise ValueError('Fine-tuning requires a base model and explicit version')
+            info = ModelRegistry('models').load_model(config['base_model'], config['base_version'], verify_integrity=True)
+            if not info.get('tokenizer_path') or artifact_hash(info['tokenizer_path']) != fingerprints['tokenizer_sha256']:
+                raise ValueError('Base model tokenizer does not match dataset')
+            config['base_checkpoint_sha256'] = artifact_hash(info['checkpoint_path'])
+        actor = principal.get()
+        config['owner_role'] = actor.role if actor else 'admin'
+        config['mode'] = 'real'
+        job_id = f'TRN-{uuid.uuid4().hex[:12]}'
+        job = TrainingJob(job_id=job_id, job_name=job_name, model_name=model_name, job_type=job_type,
+                          dataset_id=dataset_id, tokenizer_id=tokenizer_id, config=config,
+                          total_epochs=config.get('epochs', 3), status='PENDING', metrics=[],
+                          output_dir=str(self.checkpoints_base_dir / job_id))
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
         return job
 
-    def start_training(self, job_id: str) -> None:
-        """Eğitimi arka plan iş parçacığında başlatır."""
-        with JOBS_LOCK:
-            # Check if already running
-            if job_id in ACTIVE_TRAINING_JOBS:
-                raise ValueError(f"Training job {job_id} is already running")
-            
-            stop_event = threading.Event()
-            thread = threading.Thread(
-                target=self._run_training_worker,
-                args=(job_id, stop_event),
-                daemon=True
-            )
-            ACTIVE_TRAINING_JOBS[job_id] = {
-                "thread": thread,
-                "stop_event": stop_event,
-                "started_at": datetime.now(timezone.utc)
-            }
-            thread.start()
-            
-        logger.info(f"Training thread started for job {job_id}")
+    def start_training(self, job_id):
+        job = self.db.query(TrainingJob).filter_by(job_id=job_id).first()
+        if not job or job.status not in {'PENDING', 'INTERRUPTED', 'CANCELLED', 'FAILED'}:
+            raise ValueError('Job cannot be started in its current state')
+        job.status, job.error = 'QUEUED', None
+        cfg = dict(job.config)
+        cfg['cancel_requested'] = False
+        job.config = cfg
+        self.db.commit()
+        log_dir = Path(job.output_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        from backend.config import settings
+        env = dict(os.environ, DATABASE_URL=settings.database_url)
+        with (log_dir / 'worker.log').open('ab') as log:
+            proc = subprocess.Popen([sys.executable, '-m', 'backend.worker', job_id],
+                                    stdout=log, stderr=log, env=env, start_new_session=True)
+        job.config = {**job.config, 'worker_pid': proc.pid}
+        self.db.commit()
 
-    def cancel_job(self, job_id: str) -> bool:
-        """Çalışan eğitimi durdurur."""
-        if job_id in ACTIVE_TRAINING_JOBS:
-            ACTIVE_TRAINING_JOBS[job_id]["stop_event"].set()
-            logger.info(f"Stop signal sent to job {job_id}")
-            return True
-        return False
-    
-    @staticmethod
-    def _load_instruction_data(job: TrainingJob, db: Session) -> List[InstructionExample]:
-        """
-        SFT için instruction-response pairs yükle.
-        
-        Args:
-            job: TrainingJob instance
-            db: Database session
-            
-        Returns:
-            List of InstructionExample
-        """
-        instruction_examples: List[InstructionExample] = []
-        
-        if not job.dataset_id:
-            return instruction_examples
-        
-        # Dataset'ten yükle
-        ds = db.query(DatasetVersion).filter(DatasetVersion.dataset_id == str(job.dataset_id)).first()
-        if ds is None or not getattr(ds, "storage_path", None):
-            return instruction_examples
-        
-        storage_path = Path(str(ds.storage_path))
-        if not storage_path.exists():
-            return instruction_examples
-        
-        try:
-            import pyarrow.parquet as pq
-            table = pq.read_table(str(storage_path))
-            col_names = table.column_names
-            
-            # Instruction format kontrolü
-            if "instruction" in col_names and "response" in col_names:
-                instructions = table.column("instruction").to_pylist()
-                responses = table.column("response").to_pylist()
-                systems = table.column("system").to_pylist() if "system" in col_names else [None] * len(instructions)
-                inputs = table.column("input").to_pylist() if "input" in col_names else [None] * len(instructions)
-                
-                for inst, resp, sys, inp in zip(instructions, responses, systems, inputs):
-                    if inst and resp:
-                        instruction_examples.append(InstructionExample(
-                            instruction=str(inst),
-                            response=str(resp),
-                            system=str(sys) if sys else None,
-                            input=str(inp) if inp else None
-                        ))
-                
-                logger.info(f"Loaded {len(instruction_examples)} instruction examples from dataset")
-            else:
-                logger.warning(f"Dataset {job.dataset_id} doesn't have instruction/response columns")
-        
-        except Exception as e:
-            logger.error(f"Failed to load instruction data: {e}")
-        
-        return instruction_examples
+    def cancel_job(self, job_id):
+        job = self.db.query(TrainingJob).filter_by(job_id=job_id).first()
+        if not job or job.status not in {'RUNNING', 'QUEUED'}:
+            return False
+        job.config = {**job.config, 'cancel_requested': True}
+        self.db.commit()
+        return True
 
-    @staticmethod
-    def _run_training_worker(job_id: str, stop_event: threading.Event) -> None:
-        """Arka plan eğitim fonksiyonu."""
-        with SessionLocal() as db:
+    def recover_interrupted_jobs(self):
+        for job in self.db.query(TrainingJob).filter(TrainingJob.status.in_(["RUNNING", "QUEUED"])).all():
+            pid = (job.config or {}).get("worker_pid")
+            if not pid:
+                continue
             try:
-                job = db.query(TrainingJob).filter(TrainingJob.job_id == job_id).first()
-                if not job:
-                    logger.error(f"Job {job_id} not found in worker")
-                    return
-    
-                job.status = "RUNNING"
-                job.started_at = datetime.now(timezone.utc)
-                db.commit()
-    
-                raw_cfg = getattr(job, "config", {}) or {}
-                cfg: Dict[str, Any] = dict(raw_cfg) if isinstance(raw_cfg, dict) else {}
-                d_model = cfg.get("d_model", 128)
-                n_layers = cfg.get("n_layers", 4)
-                n_heads = cfg.get("n_heads", 4)
-                d_ff = cfg.get("d_ff", d_model * 4)
-                max_seq_len = cfg.get("max_seq_len", 128)
-                batch_size = cfg.get("batch_size", 4)
-                lr = cfg.get("lr", 1e-3)
-                epochs = cfg.get("epochs", 3)
-                use_lora = job.job_type in ["SFT", "SFT_LORA"] or cfg.get("use_lora", False)
-                lora_r = cfg.get("lora_r", 8)
-                lora_alpha = cfg.get("lora_alpha", 16)
-                
-                is_sft_training = job.job_type in ["SFT", "SFT_LORA"]
-                instruction_examples: List[InstructionExample] = []
-                text_corpus: List[str] = []
-    
-                # 1. Veri yükleme - SFT vs Pretrain
-                if is_sft_training:
-                    # SFT: Instruction-response pairs yükle
-                    instruction_examples = TrainingService._load_instruction_data(job, db)
-                    
-                    if not instruction_examples:
-                        logger.warning(f"No instruction data found for SFT job {job_id}, using fallback examples")
-                        instruction_examples = [
-                            InstructionExample(
-                                instruction="Türkiye'nin başkenti neresidir?",
-                                response="Türkiye'nin başkenti Ankara'dır."
-                            ),
-                            InstructionExample(
-                                instruction="Yapay zeka nedir?",
-                                response="Yapay zeka, makinelerin insan benzeri düşünme ve öğrenme yetenekleri göstermesidir."
-                            ),
-                            InstructionExample(
-                                instruction="Python nedir?",
-                                response="Python, yüksek seviyeli, yorumlamalı bir programlama dilidir."
-                            ),
-                        ] * 5
-                    
-                    logger.info(f"Loaded {len(instruction_examples)} instruction examples for SFT")
-                else:
-                    # Pretrain: Metin verilerini topla
-                    text_corpus: List[str] = []
-                    if job.dataset_id:
-                        # Check compiled dataset or documents
-                        ds = db.query(DatasetVersion).filter(DatasetVersion.dataset_id == str(job.dataset_id)).first()
-                        if ds is not None and getattr(ds, "storage_path", None) is not None and Path(str(ds.storage_path)).exists():
-                            import pyarrow.parquet as pq
-                            table = pq.read_table(str(ds.storage_path))
-                            text_corpus = [str(t) for t in table.column("text").to_pylist()]
-                    
-                    if not text_corpus:
-                        # Fallback to database documents
-                        docs = db.query(DocumentRecord).filter(DocumentRecord.is_empty == False).all()
-                        text_corpus = [str(d.text) for d in docs if d.text]
-                    
-                    if not text_corpus:
-                        text_corpus = [
-                            "Yapay zeka sistemleri yerel bilgisayarlarda eğitilebilir ve çalıştırılabilir.",
-                            "Transformer mimarisi attention mekanizmasına dayanır ve dil modellerinde temeldir.",
-                            "Derin öğrenme modelleri büyük veri kümeleri üzerinde optimize edilir.",
-                            "Doğal dil işleme metinleri sayılara dönüştürerek analiz eder.",
-                            "Local AI Research Lab uçtan uca araştırma platformudur."
-                        ] * 10
+                os.kill(int(pid), 0)
+            except ProcessLookupError:
+                job.status = "INTERRUPTED"
+                job.error = "Worker stopped; resume from the last checkpoint"
+            except PermissionError:
+                pass
+        self.db.commit()
 
-                # 2. Tokenizer'ı hazırla
-                tokenizer_id = str(job.tokenizer_id) if job.tokenizer_id else None
-                vocab_size: int = 500
-                active_tokenizer: Any = None
-                actual_tokenizer_path: Optional[str] = None
-                
-                if tokenizer_id:
-                    tok_rec = db.query(TokenizerRecord).filter(TokenizerRecord.tokenizer_id == tokenizer_id).first()
-                    tok_path = getattr(tok_rec, "storage_path", None) or getattr(tok_rec, "model_path", None) if tok_rec else None
-                    if tok_rec and tok_path and Path(str(tok_path)).exists():
-                        actual_tokenizer_path = str(tok_path)
-                        vocab_size = int(getattr(tok_rec, "vocab_size", 500))
-                        try:
-                            if str(tok_rec.tokenizer_type) == "SENTENCEPIECE":
-                                sp_tok = SentencePieceTokenizer()
-                                sp_tok.load(str(tok_path))
-                                active_tokenizer = sp_tok
-                            else:
-                                bpe_tok = BPETokenizer()
-                                bpe_tok.load_vocab(Path(str(tok_path)))
-                                active_tokenizer = bpe_tok
-                        except Exception as e:
-                            logger.warning(f"Tokenizer load failed, using fallback: {e}")
+    def resume_job(self, job_id):
+        job = self.db.query(TrainingJob).filter_by(job_id=job_id).first()
+        if not job or not (Path(job.output_dir) / 'resume.pt').exists():
+            raise ValueError('No resumable checkpoint exists')
+        job.config = {**job.config, 'resume': True}
+        self.db.commit()
+        self.start_training(job_id)
+        return job
 
-                if not active_tokenizer:
-                    active_tokenizer = SimpleCharTokenizer(vocab_size=vocab_size)
-
-                # 3. Model & Dataset oluştur
-                if is_sft_training:
-                    # SFT: InstructionDataset kullan
-                    template_name = cfg.get("template", "simple")
-                    template = TEMPLATES.get(template_name, TEMPLATES["simple"])
-                    
-                    dataset = InstructionDataset(
-                        examples=instruction_examples,
-                        tokenizer=active_tokenizer,
-                        max_length=int(max_seq_len),
-                        template=template,
-                        mask_instruction=True
-                    )
-                    dataloader = DataLoader(dataset, batch_size=int(batch_size), shuffle=True)
-                    logger.info(f"SFT Dataset created: {len(instruction_examples)} examples")
-                else:
-                    # Pretrain: SimpleTokenDataset kullan
-                    if not text_corpus:
-                        text_corpus = [
-                            "Yapay zeka sistemleri yerel bilgisayarlarda eğitilebilir ve çalıştırılabilir.",
-                            "Transformer mimarisi attention mekanizmasına dayanır ve dil modellerinde temeldir.",
-                        ] * 10
-                    full_text = "\n\n".join(text_corpus)
-                    tokens = active_tokenizer.encode(full_text)
-                    dataset = SimpleTokenDataset(tokens, seq_len=min(int(max_seq_len), 64))
-                    dataloader = DataLoader(dataset, batch_size=int(batch_size), shuffle=True)
-                    logger.info(f"Pretrain Dataset created: {len(tokens)} tokens")
-
-                # 4. Model konfigürasyonu
-                use_sdpa_opt = bool(cfg.get("use_sdpa", True))
-                grad_checkpointing_opt = bool(cfg.get("gradient_checkpointing", False))
-                model_config = GPTConfig(
-                    vocab_size=max(vocab_size, 300),
-                    max_seq_len=int(max_seq_len),
-                    d_model=int(d_model),
-                    n_layers=int(n_layers),
-                    n_heads=int(n_heads),
-                    d_ff=int(d_ff),
-                    dropout=0.1,
-                    use_sdpa=use_sdpa_opt,
-                    gradient_checkpointing=grad_checkpointing_opt
-                )
-                model = GPTModel(model_config)
-
-                # 5. Loss function (SFT için ignore_index=-100)
-                criterion = nn.CrossEntropyLoss(ignore_index=-100 if is_sft_training else -1)
-
-                # 6. LoRA eklenecekse uygula
-                if use_lora:
-                    lora_cfg = LoRAConfig(rank=int(lora_r), alpha=float(lora_alpha), r=int(lora_r), lora_alpha=float(lora_alpha))
-                    model = add_lora_to_model(model, lora_cfg)
-                    logger.info(f"Applied LoRA (r={lora_r}, alpha={lora_alpha}) to model")
-
-                device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-                model = model.to(device)
-                model.train()
-
-                optimizer = torch.optim.AdamW(model.parameters(), lr=float(lr))
-
-                total_steps = int(epochs) * len(dataloader)
-                job.total_steps = total_steps
-                job.total_epochs = int(epochs)
-                db.commit()
-
-                global_step = 0
-                loss_val: float = 0.0
-                perplexity: float = 1.0
-                metrics_history: List[Dict[str, Any]] = []
-                output_dir = Path(str(job.output_dir))
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                logger.info(f"Starting training job {job_id} ({job.job_type}): {epochs} epochs, {total_steps} total steps")
-
-                for epoch in range(int(epochs)):
-                    if stop_event.is_set():
-                        job.status = "CANCELLED"
-                        db.commit()
-                        return
-
-                    epoch_loss = 0.0
-                    for step, batch in enumerate(dataloader):
-                        if stop_event.is_set():
-                            job.status = "CANCELLED"
-                            db.commit()
-                            return
-
-                        optimizer.zero_grad()
-                        if isinstance(batch, dict):
-                            x_batch = batch['input_ids'].to(device)
-                            y_batch = batch['labels'].to(device)
-                            logits, _ = model(x_batch)
-                            shift_logits = logits[:, :-1, :].contiguous().view(-1, logits.size(-1))
-                            shift_labels = y_batch[:, 1:].contiguous().view(-1)
-                            if (shift_labels != -100).sum() == 0:
-                                continue
-                            loss = criterion(shift_logits, shift_labels)
-                        else:
-                            x_batch, y_batch = batch[0].to(device), batch[1].to(device)
-                            logits, _ = model(x_batch)
-                            loss = criterion(logits.view(-1, logits.size(-1)), y_batch.view(-1))
-
-                        loss.backward()
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                        optimizer.step()
-
-                        loss_val = float(loss.item())
-                        epoch_loss += loss_val
-                        global_step += 1
-    
-                        # Log every 2 steps or on end
-                        if global_step % 2 == 0 or global_step == total_steps:
-                            perplexity = float(torch.exp(loss).item()) if loss_val < 20 else 999.0
-                            metric_entry = {
-                                "step": global_step,
-                                "epoch": epoch + 1,
-                                "loss": round(loss_val, 4),
-                                "perplexity": round(perplexity, 2),
-                                "lr": lr
-                            }
-                            metrics_history.append(metric_entry)
-    
-                            job.progress = round(global_step / max(1, total_steps), 4)
-                            job.current_step = global_step
-                            job.current_epoch = epoch + 1
-                            job.metrics = metrics_history
-                            db.commit()
-    
-                        time.sleep(0.02)  # Yield CPU lightly
-    
-                # Checkpoint kaydet
-                checkpoint_path = output_dir / "model_final.pt"
-                torch.save({
-                    "model_state_dict": model.state_dict(),
-                    "config": model_config.to_dict(),
-                    "epoch": epochs,
-                    "step": global_step
-                }, checkpoint_path)
-    
-                # Model Registry'ye kaydet
-                registry = ModelRegistry(registry_dir="models")
-                version = "1.0.0"
-                try:
-                    registry.register_model(
-                        model_name=str(job.model_name),
-                        version=version,
-                        checkpoint_path=str(checkpoint_path),
-                        tokenizer_path=actual_tokenizer_path,
-                        metrics={
-                            "loss": round(loss_val, 4),
-                            "perplexity": round(perplexity, 2)
-                        },
-                        training_config=cfg,
-                        description=f"Trained via TrainingJob {str(job.job_id)} ({str(job.job_type)})"
-                    )
-                except Exception as reg_err:
-                    logger.warning(f"Registry registration note: {reg_err}")
-    
-                job.status = "COMPLETED"
-                job.progress = 1.0
-                job.best_checkpoint = str(checkpoint_path)
+    @staticmethod
+    def _run_training_worker(job_id, stop_event=None):
+        with SessionLocal() as db:
+            job = db.query(TrainingJob).filter_by(job_id=job_id).first()
+            if not job:
+                return
+            scope = principal.set(Principal(job.owner_id, job.config.get('owner_role', 'researcher'))) if job.owner_id else None
+            try:
+                TrainingService._train(db, job, stop_event)
+            except Exception as exc:
+                logger.exception('Training failed')
+                db.rollback()
+                job = db.query(TrainingJob).filter_by(job_id=job_id).one()
+                job.status, job.error = 'FAILED', str(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 db.commit()
-                logger.info(f"Training job {job_id} completed successfully!")
-    
-            except Exception as e:
-                logger.error(f"Training job {job_id} failed: {e}", exc_info=True)
-                db.rollback()
-                job = db.query(TrainingJob).filter(TrainingJob.job_id == job_id).first()
-                if job:
-                    job.status = "FAILED"
-                    job.error = str(e)
-                    job.completed_at = datetime.now(timezone.utc)
-                    db.commit()
             finally:
-                if job_id in ACTIVE_TRAINING_JOBS:
-                    with JOBS_LOCK:
-                        if job_id in ACTIVE_TRAINING_JOBS:
-                            del ACTIVE_TRAINING_JOBS[job_id]
+                if scope is not None:
+                    principal.reset(scope)
+
+    @staticmethod
+    def _train(db, job, stop_event):
+        import pyarrow.parquet as pq
+        import numpy as np
+        cfg = dict(job.config)
+        seed = int(cfg.get('seed', 42))
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        ds, tok, tokenizer, fingerprints = load_artifacts(db, job.dataset_id, job.tokenizer_id)
+        for key in ['dataset_sha256', 'tokenizer_sha256']:
+            if fingerprints[key] != cfg[key]:
+                raise ValueError('Artifact changed after job creation')
+        rows = pq.read_table(ds.storage_path).to_pylist()
+        if any(row.get('split') not in {'train', 'validation', 'test'} for row in rows):
+            raise ValueError('Dataset requires explicit train/validation/test splits')
+        train_rows = [r for r in rows if r['split'] == 'train']
+        val_rows = [r for r in rows if r['split'] == 'validation']
+        if not train_rows or not val_rows:
+            raise ValueError('Training and validation splits must both contain documents')
+        sft = job.job_type != 'PRETRAIN'
+        vocab = tokenizer.get_vocab_size() if hasattr(tokenizer, 'get_vocab_size') else tokenizer.vocab_size
+        config = GPTConfig(vocab_size=vocab, d_model=int(cfg.get('d_model',128)), n_layers=int(cfg.get('n_layers',4)),
+                           n_heads=int(cfg.get('n_heads',4)), d_ff=int(cfg.get('d_ff',cfg.get('d_model',128)*4)),
+                           max_seq_len=int(cfg.get('max_seq_len',128)), dropout=float(cfg.get('dropout',0.1)))
+        if sft:
+            from src.inference.pipeline import InferencePipeline
+            info = ModelRegistry('models').load_model(cfg['base_model'], cfg['base_version'], verify_integrity=True)
+            if artifact_hash(info['checkpoint_path']) != cfg['base_checkpoint_sha256']:
+                raise ValueError('Base checkpoint changed')
+            model = InferencePipeline.from_pretrained(info['checkpoint_path'], info['tokenizer_path'], device='cpu').model
+            config = model.config
+        else:
+            model = GPTModel(config)
+        if job.job_type == 'LORA_SFT':
+            for param in model.parameters():
+                param.requires_grad = False
+            model = add_lora_to_model(model, LoRAConfig(rank=cfg.get('lora_r',8), alpha=cfg.get('lora_alpha',16)))
+            if not any(p.requires_grad for p in model.parameters()):
+                raise ValueError('No LoRA target layers found')
+        device = cfg.get('device', 'cpu')
+        if device not in {'cpu','cuda','mps'}:
+            raise ValueError('Unsupported execution device')
+        model.to(device)
+        def dataset(part):
+            if sft:
+                examples = []
+                for row in part:
+                    entry = row if 'instruction' in row else json.loads(row['text'])
+                    examples.append(InstructionExample(instruction=entry['instruction'], response=entry['response'], input=entry.get('input'), system=entry.get('system')))
+                return InstructionDataset(examples, tokenizer, max_length=config.max_seq_len, template=TEMPLATES['simple'], mask_instruction=True)
+            if any('token_ids' not in row for row in part):
+                raise ValueError('Compiled token IDs missing')
+            return SimpleTokenDataset([int(t) for row in part for t in row['token_ids']], config.max_seq_len)
+        train_ds, val_ds = dataset(train_rows), dataset(val_rows)
+        if not len(train_ds) or not len(val_ds):
+            raise ValueError('Insufficient tokens for training/validation')
+        collate = InstructionDataset.collate_fn if sft else None
+        # Fixed order is recorded by seed and artifact fingerprint; supports exact batch resume.
+        loader = DataLoader(train_ds, batch_size=cfg.get('batch_size',4), shuffle=False, collate_fn=collate, generator=torch.Generator().manual_seed(seed))
+        val_loader = DataLoader(val_ds, batch_size=cfg.get('batch_size',4), shuffle=False, collate_fn=collate, generator=torch.Generator().manual_seed(seed))
+        optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=cfg.get('lr',1e-3))
+        total_steps = int(cfg.get('epochs',3)) * len(loader)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda step: max(0.0, 1-step/max(1,total_steps)))
+        output = Path(job.output_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        resume_path = output / 'resume.pt'
+        start_epoch, start_batch, global_step = 0, 0, 0
+        history = []
+        if cfg.get('resume'):
+            state = torch.load(resume_path, map_location='cpu', weights_only=False)
+            if state['lineage'] != fingerprints:
+                raise ValueError('Resume artifact lineage mismatch')
+            model.load_state_dict(state['model_state_dict'])
+            optimizer.load_state_dict(state['optimizer_state_dict'])
+            scheduler.load_state_dict(state['scheduler_state_dict'])
+            start_epoch, start_batch, global_step = state['epoch'], state['batch'], state['step']
+            history = state['metrics']
+            random.setstate(state['python_rng'])
+            np.random.set_state(state['numpy_rng'])
+            torch.set_rng_state(state['torch_rng'])
+            if device == 'cuda' and state.get('cuda_rng') is not None:
+                torch.cuda.set_rng_state_all(state['cuda_rng'])
+        def save(epoch, batch):
+            state = dict(model_state_dict=model.state_dict(), optimizer_state_dict=optimizer.state_dict(),
+                         scheduler_state_dict=scheduler.state_dict(), config=config.to_dict(), epoch=epoch, batch=batch,
+                         step=global_step, metrics=history, lineage=fingerprints, python_rng=random.getstate(),
+                         numpy_rng=np.random.get_state(), torch_rng=torch.get_rng_state(),
+                         cuda_rng=torch.cuda.get_rng_state_all() if device == 'cuda' else None)
+            temp = resume_path.with_suffix('.tmp')
+            torch.save(state,temp)
+            temp.replace(resume_path)
+            job.best_checkpoint = str(resume_path)
+        def loss_for(batch):
+            if sft:
+                x, y = batch['input_ids'].to(device), batch['labels'].to(device)
+                logits, _ = model(x)
+                logits, y = logits[:,:-1,:], y[:,1:]
+            else:
+                x, y = [t.to(device) for t in batch]
+                logits, _ = model(x)
+            count = int((y != -100).sum())
+            if not count:
+                raise ValueError('Batch has no supervised target tokens')
+            loss = torch.nn.functional.cross_entropy(logits.reshape(-1,logits.size(-1)), y.reshape(-1), ignore_index=-100)
+            if not torch.isfinite(loss):
+                raise ValueError('Non-finite training loss')
+            return loss, count
+        job.status, job.started_at = 'RUNNING', datetime.now(timezone.utc)
+        job.total_steps = total_steps
+        db.commit()
+        for epoch in range(start_epoch, int(cfg.get('epochs',3))):
+            model.train()
+            for batch_index, batch in enumerate(loader):
+                if epoch == start_epoch and batch_index < start_batch:
+                    continue
+                db.refresh(job)
+                if job.config.get('cancel_requested') or (stop_event and stop_event.is_set()):
+                    save(epoch,batch_index)
+                    job.status, job.completed_at = 'CANCELLED', datetime.now(timezone.utc)
+                    db.commit()
+                    return
+                optimizer.zero_grad()
+                loss, _ = loss_for(batch)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(),1.0)
+                optimizer.step()
+                scheduler.step()
+                global_step += 1
+                history.append({'step':global_step,'epoch':epoch+1,'loss':loss.item(),
+                                'perplexity':math.exp(loss.item()),'lr':optimizer.param_groups[0]['lr'],'mode':'real'})
+                job.current_epoch, job.current_step = epoch+1, global_step
+                job.progress, job.metrics = global_step/total_steps, copy.deepcopy(history)
+                job.config = {**job.config,'heartbeat':datetime.now(timezone.utc).isoformat()}
+                save(epoch,batch_index+1)
+                db.commit()
+            model.eval()
+            nll, count = 0.0, 0
+            with torch.inference_mode():
+                for batch in val_loader:
+                    loss, n = loss_for(batch)
+                    nll += loss.item()*n
+                    count += n
+            history[-1].update(val_loss=nll/count, val_perplexity=math.exp(nll/count))
+            job.metrics = copy.deepcopy(history)
+            save(epoch+1,0)
+            db.commit()
+        # Export a plain GPT checkpoint; resume retains unmerged adapters and optimizer.
+        exported = copy.deepcopy(model).cpu()
+        for name, module in list(exported.named_modules()):
+            if isinstance(module, LinearWithLoRA):
+                module.merge()
+                parent_name, _, attr = name.rpartition('.')
+                parent = exported.get_submodule(parent_name) if parent_name else exported
+                setattr(parent,attr,module.base_layer)
+        final_path = output / 'model_final.pt'
+        lineage = {**fingerprints,'dataset_id':job.dataset_id,'tokenizer_id':job.tokenizer_id,'experiment_id':job.job_id}
+        torch.save({'model_state_dict':exported.state_dict(),'config':config.to_dict(),
+                    'tokenizer_sha256':fingerprints['tokenizer_sha256'],'lineage':lineage}, final_path)
+        version = cfg.get('version') or f'1.0.{int(datetime.now().timestamp())}'
+        try:
+            ModelRegistry('models').register_model(job.model_name,version,final_path,tok.storage_path,
+                metrics={'val_loss':nll/count,'val_perplexity':math.exp(nll/count)},
+                training_config={**config.to_dict(),**lineage},description=f'Experiment {job.job_id}')
+        except Exception as exc:
+            job.status, job.error = 'REGISTRY_FAILED', str(exc)
+        else:
+            job.status = 'COMPLETED'
+        job.config = {**job.config,'model_version':version,'checkpoint_sha256':artifact_hash(final_path)}
+        job.best_checkpoint, job.progress = str(final_path),1.0
+        job.completed_at = datetime.now(timezone.utc)
+        (output/'experiment.json').write_text(json.dumps({**lineage,'config':job.config,'metrics':history,'status':job.status},indent=2))
+        db.commit()

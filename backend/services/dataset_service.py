@@ -407,8 +407,14 @@ class DatasetCompilationService:
         metadata_path = Path(result["metadata_path"])
         
         # Source IDs
-        source_doc_ids = [doc.document_id for doc in documents]
-        source_file_ids = list(set(doc.file_id for doc in documents))
+        import json
+        import pyarrow.parquet as pq
+        from src.tokenizer.loading import artifact_hash
+        rows = pq.read_table(output_path, columns=["document_id", "file_id"]).to_pylist()
+        source_doc_ids = [row["document_id"] for row in rows]
+        source_file_ids = list({row["file_id"] for row in rows})
+        tok = self.db.query(TokenizerRecord).filter(TokenizerRecord.tokenizer_id == config["tokenizer_id"]).one()
+        fingerprints = {"dataset_sha256": artifact_hash(output_path), "tokenizer_sha256": artifact_hash(tok.storage_path), "split_strategy": "content_sha256_80_10_10"}
         
         # File size
         file_size = output_path.stat().st_size if output_path.exists() else 0
@@ -434,7 +440,8 @@ class DatasetCompilationService:
             compilation_params=config["compilation_params"],
             filter_stats=stats,
             is_active=True,
-            is_snapshot=False,
+            custom_metadata=fingerprints,
+            is_snapshot=True,
             compiled_at=datetime.now(timezone.utc)
         )
         

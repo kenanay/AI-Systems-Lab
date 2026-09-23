@@ -60,6 +60,8 @@ export default function JourneyPage() {
       try {
         const data = await api.journey.getCurriculum();
         setStages(data || []);
+        const progress = await api.journey.getProgress();
+        setUserAnswers(progress.answers || {});
       } catch (err: any) {
         setStageError(err?.message || 'Müfredat yüklenirken hata oluştu.');
       } finally {

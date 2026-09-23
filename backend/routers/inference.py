@@ -33,60 +33,38 @@ router = APIRouter(
     tags=["inference"]
 )
 
-# Global ModelManager singleton
-manager = ModelManager()
+# Each authenticated user selects their own model.
+from src.security.context import principal
+_managers = {}
+class ScopedManager:
+    def __getattr__(self, name):
+        actor = principal.get()
+        key = actor.user_id if actor else "local"
+        if key not in _managers:
+            _managers[key] = ModelManager()
+        return getattr(_managers[key], name)
+manager = ScopedManager()
 
 
 def _ensure_model_loaded():
-    """Yüklü modeli, yoksa registry'deki en güncel modeli, o da yoksa demo modelini döndürür."""
-    if manager.model is not None:
-        return manager.model, manager.tokenizer, manager.model_name or "local-model"
-    try:
-        from src.registry.model_registry import ModelRegistry
-        registry = ModelRegistry("models")
-        avail = registry.list_models()
-        if avail:
-            manager.load_model(registry_dir="models", model_name=avail[0].model_name)
-            if manager.model is not None:
-                return manager.model, manager.tokenizer, manager.model_name or avail[0].model_name
-    except Exception as e:
-        logger.warning(f"Could not auto-load model from registry: {e}")
-
-    # Fallback demo model
-    cfg = GPTConfig(
-        vocab_size=300,
-        max_seq_len=128,
-        d_model=64,
-        n_layers=4,
-        n_heads=4,
-        d_ff=128,
-        dropout=0.0
-    )
-    demo_model = GPTModel(cfg)
-    demo_model.eval()
-    return demo_model, manager.tokenizer, "demo-transformer-decoder"
+    if manager.model is None or manager.tokenizer is None:
+        raise HTTPException(409, "Select and load a model with its tokenizer first")
+    return manager.model, manager.tokenizer, manager.model_name
 
 
 def _encode_text(tokenizer, text: str, vocab_size: int = 300) -> List[int]:
-    if tokenizer is not None:
-        try:
-            ids = tokenizer.encode(text)
-            if ids:
-                return ids
-        except Exception:
-            pass
-    return [ord(c) % vocab_size for c in text]
+    if tokenizer is None:
+        raise ValueError("Tokenizer missing")
+    ids = tokenizer.encode(text)
+    if not ids:
+        raise ValueError("Input contains no tokens")
+    return ids
 
 
 def _decode_tokens(tokenizer, token_ids: List[int]) -> str:
-    if tokenizer is not None:
-        try:
-            decoded = tokenizer.decode(token_ids)
-            if decoded:
-                return decoded
-        except Exception:
-            pass
-    return "".join(chr(tid) if 32 <= tid < 127 else f"[{tid}]" for tid in token_ids)
+    if tokenizer is None:
+        raise ValueError("Tokenizer missing")
+    return tokenizer.decode(token_ids)
 
 
 class LoadModelRequest(BaseModel):
@@ -401,6 +379,7 @@ def get_next_token_probabilities(request: NextTokenProbsRequest) -> NextTokenPro
     
 
 class AttentionInspectRequest(BaseModel):
+    mode: str = "demo"
     text: str = Field(..., min_length=1, max_length=500, description="Analiz edilecek metin")
     layer_idx: Optional[int] = Field(None, ge=0, description="Katman indeksi (None ise tüm katmanların ortalaması)")
     head_idx: Optional[int] = Field(None, ge=0, description="Head indeksi (None ise tüm head'lerin ortalaması)")
@@ -408,6 +387,7 @@ class AttentionInspectRequest(BaseModel):
 
 
 class AttentionInspectResponse(BaseModel):
+    mode: str = "real"
     tokens: List[str]
     token_ids: List[int]
     num_layers: int
@@ -428,56 +408,22 @@ def inspect_attention(request: AttentionInspectRequest) -> AttentionInspectRespo
     tokenizer = manager.tokenizer
     model_name = manager.model_name or "local-gpt-research"
 
-    # Eğer model yüklü değilse, registry'den en son modeli dene veya fallback research modeli oluştur
-    if model is None:
-        try:
-            from src.registry.model_registry import ModelRegistry
-            registry = ModelRegistry("models")
-            avail = registry.list_models()
-            if avail:
-                manager.load_model(registry_dir="models", model_name=avail[0].model_name)
-                model = manager.model
-                tokenizer = manager.tokenizer
-                model_name = manager.model_name or avail[0].model_name
-        except Exception as e:
-            logger.warning(f"Could not auto-load model from registry: {e}")
-
-    # Fallback model (her zaman çalışabilen hazır eğitsel GPT modeli)
-    if model is None:
-        cfg = GPTConfig(
-            vocab_size=300,
-            max_seq_len=128,
-            d_model=64,
-            n_layers=4,
-            n_heads=4,
-            d_ff=128,
-            dropout=0.0
-        )
-        model = GPTModel(cfg)
-        model.eval()
-        model_name = "demo-transformer-decoder"
-
-    # Tokenize input
-    if tokenizer is not None:
-        try:
-            token_ids = tokenizer.encode(request.text)
-            if not token_ids:
-                token_ids = [ord(c) % 300 for c in request.text]
-                tokens = [c for c in request.text]
-            else:
-                tokens = []
-                for tid in token_ids:
-                    try:
-                        decoded = tokenizer.decode([tid])
-                        tokens.append(decoded if decoded.strip() else f"[{tid}]")
-                    except Exception:
-                        tokens.append(f"[{tid}]")
-        except Exception:
-            token_ids = [ord(c) % 300 for c in request.text]
-            tokens = [c for c in request.text]
+    if request.mode not in {"demo", "real"}:
+        raise HTTPException(422, "Choose demo or real mode")
+    if request.mode == "real":
+        if request.model_name:
+            manager.load_model("models", request.model_name)
+        model, tokenizer, model_name = _ensure_model_loaded()
     else:
-        token_ids = [ord(c) % 300 for c in request.text[:64]]
-        tokens = [c for c in request.text[:64]]
+        from backend.services.training_service import SimpleCharTokenizer
+        with torch.random.fork_rng():
+            torch.manual_seed(42)
+            model = GPTModel(GPTConfig(vocab_size=300, max_seq_len=128, d_model=64, n_layers=4, n_heads=4, d_ff=128, dropout=0.0))
+        tokenizer = SimpleCharTokenizer(300)
+        model_name = "demo-untrained-transformer"
+
+    token_ids = _encode_text(tokenizer, request.text)
+    tokens = [_decode_tokens(tokenizer, [tid]) for tid in token_ids]
 
     # Truncate to max_seq_len
     max_len = getattr(model, "max_seq_len", 128)
@@ -530,6 +476,7 @@ def inspect_attention(request: AttentionInspectRequest) -> AttentionInspectRespo
         ]
 
     return AttentionInspectResponse(
+        mode=request.mode,
         tokens=tokens,
         token_ids=token_ids,
         num_layers=num_layers,

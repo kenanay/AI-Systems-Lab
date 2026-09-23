@@ -73,6 +73,8 @@ def seed_default_users() -> None:
     """
     Eğer hiç kullanıcı yoksa varsayılan admin ve researcher hesaplarını oluşturur.
     """
+    if not settings.seed_demo_users:
+        return
     from backend.models import UserRecord
     from backend.security.password import hash_password
     
@@ -117,6 +119,8 @@ def init_db() -> None:
     logger.info("Initializing database...")
     import backend.models  # Ensure all models are registered with Base.metadata
     Base.metadata.create_all(bind=engine)
+    from backend.migrations import migrate
+    migrate(engine)
     logger.info("Database initialized successfully")
     seed_default_users()
 

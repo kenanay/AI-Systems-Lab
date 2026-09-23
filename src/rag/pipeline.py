@@ -219,7 +219,8 @@ class RAGPipeline:
         retrieval_mode: str = "hybrid",
         alpha: float = 0.5,
         max_new_tokens: int = 150,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        mode: str = "demo"
     ) -> RAGResponse:
         """
         Sorguyu arar, zenginleştirilmiş bağlamı oluşturur ve üretimi tamamlar.
@@ -239,45 +240,31 @@ class RAGPipeline:
         # 2. Grounded Prompt oluştur
         full_prompt, context_text = self.build_grounded_prompt(question, retrieved)
 
-        # 3. Model Üretimi (Varsa modelle, yoksa bağlam özetleyicisiyle)
+        if mode not in {"real", "demo", "retrieval"}:
+            raise ValueError("Unknown RAG mode")
         answer = ""
-        model_name = "local-rag-grounded-generator"
-
-        if self.model is not None and self.tokenizer is not None:
-            try:
-                # Gerçek model inference
-                from src.inference.generation import generate_with_prompt
-                answer = generate_with_prompt(
-                    model=self.model,
-                    tokenizer=self.tokenizer,
-                    prompt=full_prompt,
-                    max_new_tokens=max_new_tokens,
-                    temperature=temperature,
-                    return_only_new_text=True
-                )
-                model_name = getattr(self.model, "model_name", "gpt-rag")
-            except Exception as e:
-                logger.warning(f"Doğrudan inference hatası: {e}")
-
-        # Eğer model çıktısı boşsa veya model henüz eğitilmemişse bağlamdan akıllı özetleyici üretir
-        if not answer:
+        model_name = "retrieval-only"
+        if mode == "real":
+            if self.model is None or self.tokenizer is None:
+                raise ValueError("Real RAG requires a selected language model and tokenizer")
+            from src.inference.pipeline import InferencePipeline
+            device = str(next(self.model.parameters()).device)
+            pipe = InferencePipeline(self.model, self.tokenizer, device=device)
+            answer = pipe.generate(full_prompt, max_new_tokens=max_new_tokens, temperature=temperature)
+            model_name = getattr(self.model, "model_name", "selected-model")
+        elif mode == "demo":
+            model_name = "demo-template"
             if retrieved:
-                top_match = retrieved[0]
-                source_name = top_match.metadata.get("title", "İlgili Belge")
-                snippet = top_match.text[:250].strip()
-                answer = (
-                    f"Belirtilen soruya ilişkin olarak elimizdeki kaynaklara göre: {snippet}... [Kaynak 1].\n\n"
-                    f"Bu bilgi doğrudan {source_name} belgesinden doğrulanmıştır."
-                )
+                answer = f"Örnek şablon yanıt: {retrieved[0].text[:250]} [Kaynak 1]"
             else:
-                answer = "Sağlanan yerel belgelerde ve veri havuzunda bu soruya dair doğrulanmış bir bilgi bulunamadı."
+                answer = "Örnek yanıt için belge bulunamadı."
 
         # 4. Atıfları Çıkar (Citations)
         citations: List[Citation] = []
         for idx, chunk in enumerate(retrieved, 1):
             tag = f"[Kaynak {idx}]"
             # Yanıtta atıf etiketi geçiyorsa veya en yüksek skorlu ise ekle
-            if tag in answer or idx == 1:
+            if tag in answer:
                 title = str(chunk.metadata.get("title") or chunk.metadata.get("document_id") or f"Kaynak {idx}")
                 snippet = chunk.text[:180] + ("..." if len(chunk.text) > 180 else "")
                 citations.append(
@@ -304,6 +291,8 @@ class RAGPipeline:
                 "retrieval_mode": retrieval_mode,
                 "chunks_retrieved": len(retrieved),
                 "citations_count": len(citations),
+                "mode": mode,
+                "citation_support_verified": False,
                 "top_score": round(retrieved[0].score, 4) if retrieved else 0.0
             }
         )

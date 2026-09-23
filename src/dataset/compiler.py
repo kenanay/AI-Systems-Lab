@@ -137,6 +137,9 @@ class DatasetCompiler:
         self.stats["total_documents"] = len(documents)
         
         # Step 1: Filter by quality score
+        from src.dataset.splits import split_for_text, content_hash
+        original_splits = {doc.document_id: split_for_text(str(doc.text)) for doc in documents}
+        original_hashes = {doc.document_id: content_hash(str(doc.text)) for doc in documents}
         filtered_docs = self._filter_by_quality(
             documents,
             min_quality_score,
@@ -168,6 +171,8 @@ class DatasetCompiler:
                 
                 # Create tokenized document
                 tokenized_doc = {
+                    "split": original_splits[doc.document_id],
+                    "source_sha256": original_hashes[doc.document_id],
                     "document_id": doc.document_id,
                     "file_id": doc.file_id,
                     "text": doc_text,
@@ -189,12 +194,13 @@ class DatasetCompiler:
                 
             except Exception as e:
                 logger.error(f"Tokenization failed for {doc.document_id}: {e}")
-                continue
+                raise ValueError(f"Tokenization failed for {doc.document_id}") from e
         
         logger.info(f"Tokenization complete: {len(tokenized_docs)} documents")
         
         # Step 6: Deduplication
         if remove_duplicates:
+            tokenized_docs.sort(key=lambda row: ({"train":0,"validation":1,"test":2}[row["split"]],row["document_id"]))
             tokenized_docs = self._remove_duplicates(
                 tokenized_docs,
                 use_minhash=use_minhash,
@@ -310,7 +316,9 @@ class DatasetCompiler:
         from src.pii import scan_and_mask_text
         
         processed = []
-        for doc in documents:
+        for original in documents:
+            from types import SimpleNamespace
+            doc = SimpleNamespace(**{column.name: getattr(original, column.name) for column in DocumentRecord.__table__.columns})
             masked_text, matches, summary = scan_and_mask_text(str(doc.text or ""))
             if matches:
                 self.stats["pii_masked_count"] += 1
@@ -499,6 +507,8 @@ class DatasetCompiler:
         
         # PyArrow schema tanımla (type safety)
         schema = pa.schema([
+            ("split", pa.string()),
+            ("source_sha256", pa.string()),
             ("document_id", pa.string()),
             ("file_id", pa.string()),
             ("text", pa.string()),

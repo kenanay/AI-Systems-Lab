@@ -157,7 +157,11 @@ class ModelRegistry:
         Args:
             registry_dir: Registry directory path
         """
+        from src.security.context import principal
+        actor = principal.get()
         self.registry_dir = Path(registry_dir)
+        if actor is not None:
+            self.registry_dir = Path("models") if actor.role == "admin" else Path("models") / "users" / actor.user_id
         self.registry_dir.mkdir(parents=True, exist_ok=True)
         self.index = {}
         
@@ -174,6 +178,12 @@ class ModelRegistry:
         
         logger.info(f"ModelRegistry initialized: {self.registry_dir}")
     
+    @staticmethod
+    def _validate_identifier(value):
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", value) or ".." in value:
+            raise ValueError("Invalid model name or version")
+
     def register_model(
         self,
         model_name: str,
@@ -216,6 +226,10 @@ class ModelRegistry:
             ...     tags=['production', 'turkish']
             ... )
         """
+        self._validate_identifier(model_name)
+        self._validate_identifier(version)
+        if (self.metadata_dir / f"{model_name}_{version}.json").exists():
+            raise ValueError("Model version already exists; choose a new version")
         cp_path = Path(checkpoint_path)
         
         if not cp_path.exists():
@@ -240,10 +254,13 @@ class ModelRegistry:
         if tokenizer_path is not None:
             tok_path = Path(tokenizer_path)
             if tok_path.exists():
-                tokenizer_dest = model_dir / "tokenizer.model"
-                shutil.copy(tok_path, tokenizer_dest)
+                tokenizer_dest = model_dir / ("tokenizer" if tok_path.is_dir() else "tokenizer" + tok_path.suffix)
+                if tok_path.is_dir():
+                    shutil.copytree(tok_path, tokenizer_dest)
+                else:
+                    shutil.copy(tok_path, tokenizer_dest)
                 tokenizer_info['path'] = str(tokenizer_dest.relative_to(self.registry_dir))
-                tokenizer_info['type'] = 'sentencepiece'
+                tokenizer_info['type'] = 'bpe' if tok_path.is_dir() or tok_path.suffix == '.json' else 'sentencepiece'
                 
                 # Copy vocab if exists
                 vocab_path = tok_path.with_suffix('.vocab')
@@ -368,6 +385,9 @@ class ModelRegistry:
             >>> info = registry.load_model("turkish-gpt", load_weights=True)
             >>> model.load_state_dict(info['state_dict'])
         """
+        self._validate_identifier(model_name)
+        if version is not None:
+            self._validate_identifier(version)
         # Find model
         if version is None:
             # Get latest version
@@ -388,7 +408,7 @@ class ModelRegistry:
         # Model paths
         model_dir = self.models_dir / model_name / version
         checkpoint_path = model_dir / "model.pt"
-        tokenizer_path = model_dir / "tokenizer.model"
+        tokenizer_path = self.registry_dir / metadata.tokenizer_info.get("path", str(model_dir.relative_to(self.registry_dir) / "tokenizer.model"))
         
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")

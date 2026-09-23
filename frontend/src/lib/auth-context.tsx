@@ -9,6 +9,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import axios from 'axios';
+import { useQueryClient } from '@tanstack/react-query';
 import { User, LoginResponse, RegisterRequest } from '@/types/auth';
 import { API_BASE_URL } from '@/lib/api';
 
@@ -30,44 +31,26 @@ export const REFRESH_TOKEN_KEY = 'ailab_refresh_token';
 export const USER_KEY = 'ailab_user';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Oturumu başlat
   useEffect(() => {
-    try {
-      const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-      const storedUser = localStorage.getItem(USER_KEY);
-
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      }
-    } catch (e) {
-      console.error('Kayıtlı oturum okunurken hata:', e);
-      localStorage.removeItem(ACCESS_TOKEN_KEY);
-      localStorage.removeItem(REFRESH_TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-    } finally {
-      setIsLoading(false);
-    }
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    axios.get(`${API_BASE_URL}/api/v1/auth/me`, { withCredentials: true })
+      .then(res => setUser(res.data.user))
+      .catch(async () => {
+        try {
+          await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {}, { withCredentials: true });
+          const res = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, { withCredentials: true });
+          setUser(res.data.user);
+        } catch { setUser(null); }
+      })
+      .finally(() => setIsLoading(false));
   }, []);
-
-  // Axios Authorization Header Enjeksiyonu
-  useEffect(() => {
-    const reqInterceptor = axios.interceptors.request.use((config) => {
-      const currentToken = token || (typeof window !== 'undefined' ? localStorage.getItem(ACCESS_TOKEN_KEY) : null);
-      if (currentToken && !config.headers.Authorization) {
-        config.headers.Authorization = `Bearer ${currentToken}`;
-      }
-      return config;
-    });
-
-    return () => {
-      axios.interceptors.request.eject(reqInterceptor);
-    };
-  }, [token]);
 
   // Oturum açma
   const login = useCallback(async (usernameOrEmail: string, password: string) => {
@@ -78,12 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       const data = response.data;
+      queryClient.clear();
       setToken(data.access_token);
       setUser(data.user);
 
-      localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
-      localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+
 
       return { success: true };
     } catch (error: any) {
@@ -106,6 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Oturumu kapatma
   const logout = useCallback(() => {
+    void axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true });
+    queryClient.clear();
     setUser(null);
     setToken(null);
     localStorage.removeItem(ACCESS_TOKEN_KEY);
@@ -115,16 +99,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Profil yenileme
   const refreshUser = useCallback(async () => {
-    const currentToken = token || localStorage.getItem(ACCESS_TOKEN_KEY);
-    if (!currentToken) return;
-
     try {
       const res = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, {
-        headers: { Authorization: `Bearer ${currentToken}` },
+        withCredentials: true,
       });
       if (res.data?.user) {
         setUser(res.data.user);
-        localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
+
       }
     } catch (err) {
       console.warn('Profil yenilenemedi:', err);
@@ -134,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = {
     user,
     token,
-    isAuthenticated: !!user && !!token,
+    isAuthenticated: !!user,
     isLoading,
     login,
     register,

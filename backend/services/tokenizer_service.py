@@ -272,7 +272,8 @@ class TokenizerTrainingService:
             ).all()
             
             for doc in documents:
-                if doc.text:
+                from src.dataset.splits import split_for_text
+                if doc.text and doc.file.training_allowed and split_for_text(doc.text) == "train":
                     texts.append(doc.text)
             
             logger.info(f"Collected {len(texts)} texts from {len(file_ids)} files")
@@ -291,7 +292,7 @@ class TokenizerTrainingService:
                     try:
                         table = pq.read_table(str(ds_path))
                         if "text" in table.column_names:
-                            ds_texts = [str(t) for t in table.column("text").to_pylist() if t]
+                            ds_texts = [str(row["text"]) for row in table.to_pylist() if row.get("text") and row.get("split") == "train"]
                             texts.extend(ds_texts)
                             logger.info(f"Collected {len(ds_texts)} texts from dataset {ds.dataset_id}")
                     except Exception as e:

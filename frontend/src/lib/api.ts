@@ -20,25 +20,38 @@ import type {
 
 // API base URL
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+axios.defaults.withCredentials = true;
 
 // Axios instance
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
+let refreshPromise: Promise<unknown> | null = null;
+function refreshOnUnauthorized(client: typeof axios | AxiosInstance) {
+  client.interceptors.response.use(response => response, async error => {
+    const config = error.config;
+    if (error.response?.status === 401 && config && !config._retried && !config.url?.includes('/auth/')) {
+      config._retried = true;
+      refreshPromise ??= axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {}, { withCredentials: true })
+        .finally(() => { refreshPromise = null; });
+      await refreshPromise;
+      return client.request(config);
+    }
+    return Promise.reject(error);
+  });
+}
+refreshOnUnauthorized(axios);
+refreshOnUnauthorized(apiClient);
+
 // Request interceptor (logging & auth)
 apiClient.interceptors.request.use(
   (config) => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('ailab_access_token');
-      if (token && !config.headers.Authorization) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
     console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
@@ -297,7 +310,8 @@ export interface CompilationJobRequest {
 export interface CompilationJob {
   job_id: string;
   job_name: string;
-  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  status: 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED' | 'REGISTRY_FAILED';
+  config?: Record<string, any>;
   progress: number;
   created_at: string;
   started_at?: string;
@@ -439,7 +453,8 @@ export interface TokenizerTrainingRequest {
 export interface TokenizerJob {
   job_id: string;
   job_name: string;
-  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  status: 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED' | 'REGISTRY_FAILED';
+  config?: Record<string, any>;
   progress: number;
   created_at: string;
   started_at?: string;
@@ -603,7 +618,11 @@ export const deleteTokenizer = async (
 export interface StartTrainingRequest {
   job_name: string;
   model_name: string;
-  job_type: 'PRETRAIN' | 'SFT' | 'SFT_LORA';
+  job_type: 'PRETRAIN' | 'SFT' | 'SFT_LORA' | 'FULL_SFT' | 'LORA_SFT';
+  base_model?: string;
+  base_version?: string;
+  device?: string;
+  seed?: number;
   dataset_id?: string;
   tokenizer_id?: string;
   epochs: number;
@@ -629,7 +648,8 @@ export interface TrainingJobResponse {
   job_id: string;
   job_name: string;
   job_type: string;
-  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  status: 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED' | 'REGISTRY_FAILED';
+  config?: Record<string, any>;
   model_name: string;
   dataset_id?: string;
   tokenizer_id?: string;
@@ -646,6 +666,9 @@ export interface TrainingJobResponse {
 }
 
 export const trainingApi = {
+  async resumeJob(jobId: string): Promise<TrainingJobResponse> {
+    return (await apiClient.post(`/api/v1/training/jobs/${jobId}/resume`)).data;
+  },
   async start(data: StartTrainingRequest): Promise<TrainingJobResponse> {
     const response = await apiClient.post<TrainingJobResponse>('/api/v1/training/start', data);
     return response.data;
@@ -1032,6 +1055,9 @@ export interface CitationItem {
 }
 
 export interface RAGQueryRequest {
+  mode?: 'real' | 'demo' | 'retrieval';
+  model_name?: string;
+  model_version?: string;
   question: string;
   collection_name?: string;
   retrieval_mode?: 'hybrid' | 'dense' | 'sparse';
@@ -1795,6 +1821,9 @@ export interface CheckQuestionResponse {
 }
 
 export const journeyApi = {
+  async getProgress(): Promise<{ answers: Record<string, { selected: number; checking: boolean; result?: CheckQuestionResponse }> }> {
+    return (await apiClient.get('/api/v1/journey/progress')).data;
+  },
   async getCurriculum(): Promise<JourneyStage[]> {
     const response = await apiClient.get<JourneyStage[]>('/api/v1/journey/curriculum');
     return response.data;

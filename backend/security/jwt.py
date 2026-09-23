@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -44,7 +45,7 @@ def create_token(
     """
     Belirtilen payload ve geçerlilik süresiyle JWT token üretir.
     """
-    secret = secret_key or settings.secret_key
+    secret = secret_key or settings.jwt_secret_key or settings.secret_key
     to_encode = data.copy()
 
     now = datetime.now(timezone.utc)
@@ -52,6 +53,7 @@ def create_token(
     to_encode.update({
         "exp": int(expire.timestamp()),
         "iat": int(now.timestamp()),
+        "jti": uuid.uuid4().hex,
         "type": token_type
     })
 
@@ -93,7 +95,7 @@ def decode_token(token: str, secret_key: Optional[str] = None, verify_exp: bool 
     Raises:
         ValueError: Token geçersiz, manipüle edilmiş veya süresi dolmuşsa.
     """
-    secret = secret_key or settings.secret_key
+    secret = secret_key or settings.jwt_secret_key or settings.secret_key
     if not token or not isinstance(token, str):
         raise ValueError("Geçersiz token formatı.")
 
@@ -116,9 +118,18 @@ def decode_token(token: str, secret_key: Optional[str] = None, verify_exp: bool 
     except Exception as e:
         raise ValueError(f"Token içeriği çözülemedi: {str(e)}")
 
-    if verify_exp and "exp" in payload:
+    try:
+        header = json.loads(_b64url_decode(header_b64))
+        if header.get("alg") != ALGORITHM or header.get("typ") != "JWT":
+            raise ValueError("Unsupported token header")
+        if not payload.get("sub") or not isinstance(payload.get("exp"), (int, float)):
+            raise ValueError("Token requires sub and exp")
+    except (TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid token") from exc
+
+    if verify_exp:
         now_ts = int(time.time())
-        if now_ts > payload["exp"]:
+        if now_ts >= payload["exp"]:
             raise ValueError("Token kullanım süresi dolmuş (expired).")
 
     return payload

@@ -22,13 +22,14 @@ _SRC_DIR = _PROJECT_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from backend.security.scope import require_access
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.config import settings
 from backend.database import init_db
-from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation, embeddings, rag, tensor_lab, math_lab, transformer_lab, journey, systems_lab, synthetic_lab, nn_lab, auth
+from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation, embeddings, rag, tensor_lab, math_lab, transformer_lab, journey, systems_lab, synthetic_lab, nn_lab, auth, architecture_atlas
 
 # Logger yapılandırması
 logging.basicConfig(
@@ -81,24 +82,25 @@ if settings.enable_cors:
     )
 
 # Routers
-app.include_router(files.router)
-app.include_router(datasets.router)
-app.include_router(tokenizer.router)
-app.include_router(datasets_compiler.router)
-app.include_router(training.router)
-app.include_router(models.router)
-app.include_router(inference.router)
-app.include_router(evaluation.router)
-app.include_router(embeddings.router)
-app.include_router(rag.router)
-app.include_router(tensor_lab.router)
-app.include_router(math_lab.router)
-app.include_router(transformer_lab.router)
-app.include_router(journey.router)
-app.include_router(systems_lab.router)
-app.include_router(synthetic_lab.router)
-app.include_router(nn_lab.router)
+app.include_router(files.router, dependencies=[Depends(require_access)])
+app.include_router(datasets.router, dependencies=[Depends(require_access)])
+app.include_router(tokenizer.router, dependencies=[Depends(require_access)])
+app.include_router(datasets_compiler.router, dependencies=[Depends(require_access)])
+app.include_router(training.router, dependencies=[Depends(require_access)])
+app.include_router(models.router, dependencies=[Depends(require_access)])
+app.include_router(inference.router, dependencies=[Depends(require_access)])
+app.include_router(evaluation.router, dependencies=[Depends(require_access)])
+app.include_router(embeddings.router, dependencies=[Depends(require_access)])
+app.include_router(rag.router, dependencies=[Depends(require_access)])
+app.include_router(tensor_lab.router, dependencies=[Depends(require_access)])
+app.include_router(math_lab.router, dependencies=[Depends(require_access)])
+app.include_router(transformer_lab.router, dependencies=[Depends(require_access)])
+app.include_router(journey.router, dependencies=[Depends(require_access)])
+app.include_router(systems_lab.router, dependencies=[Depends(require_access)])
+app.include_router(synthetic_lab.router, dependencies=[Depends(require_access)])
+app.include_router(nn_lab.router, dependencies=[Depends(require_access)])
 app.include_router(auth.router)
+app.include_router(architecture_atlas.router, dependencies=[Depends(require_access)])
 
 
 @app.get("/")

@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -61,7 +61,7 @@ class TokenResponse(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str = Field(..., description="Geçerli Refresh Token")
+    refresh_token: Optional[str] = None
 
 
 class RefreshTokenResponse(BaseModel):
@@ -157,7 +157,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     summary="Oturum Açma (JWT Al)",
     dependencies=[Depends(rate_limit(max_requests=15, window_seconds=60))]
 )
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """
     Kullanıcı adı veya e-posta ve parola ile oturum açar.
     Access Token ve Refresh Token döner.
@@ -199,6 +199,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(payload, expires_delta=access_delta)
     refresh_token = create_refresh_token(payload, expires_delta=refresh_delta)
 
+    _set_cookies(response, access_token, refresh_token)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -214,10 +215,11 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     summary="Access Token Yenileme",
     dependencies=[Depends(rate_limit(max_requests=30, window_seconds=60))]
 )
-def refresh_token(req: RefreshTokenRequest, db: Session = Depends(get_db)):
+def refresh_token(req: RefreshTokenRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     """Refresh token kullanarak yeni bir Access Token üretir."""
     try:
-        payload = decode_token(req.refresh_token)
+        _check_origin(request)
+        payload = decode_token(req.refresh_token or request.cookies.get("ailab_refresh", ""))
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -232,6 +234,9 @@ def refresh_token(req: RefreshTokenRequest, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    from backend.models import RevokedToken
+    if payload.get("jti") and db.get(RevokedToken, payload["jti"]):
+        raise HTTPException(401, "Refresh token revoked")
     user_id = payload.get("sub")
     user = db.query(UserRecord).filter(UserRecord.user_id == user_id).first()
     if not user or not user.is_active:
@@ -250,6 +255,11 @@ def refresh_token(req: RefreshTokenRequest, db: Session = Depends(get_db)):
     access_delta = timedelta(minutes=settings.access_token_expire_minutes)
     new_access_token = create_access_token(new_payload, expires_delta=access_delta)
 
+    # Rotate refresh tokens; a used token cannot be replayed.
+    if payload.get("jti"):
+        db.add(RevokedToken(jti=payload["jti"], expires_at=datetime.fromtimestamp(payload["exp"], timezone.utc)))
+        db.commit()
+    _set_cookies(response, new_access_token, create_refresh_token(new_payload))
     return RefreshTokenResponse(
         access_token=new_access_token,
         token_type="bearer",
@@ -459,3 +469,35 @@ def update_user_role(
         "message": f"'{user.username}' kullanıcısının rolü '{target_role}' olarak güncellendi.",
         "user": user.to_dict()
     }
+
+
+def _check_origin(request: Request):
+    origin = request.headers.get("origin")
+    if origin and origin not in settings.allowed_origins:
+        raise HTTPException(403, "Untrusted origin")
+
+
+def _set_cookies(response: Response, access: str, refresh: str):
+    common = dict(httponly=True, secure=settings.cookie_secure, samesite="strict")
+    response.set_cookie("ailab_access", access, max_age=settings.access_token_expire_minutes*60, path="/", **common)
+    response.set_cookie("ailab_refresh", refresh, max_age=settings.refresh_token_expire_days*86400, path="/api/v1/auth", **common)
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    _check_origin(request)
+    from backend.models import RevokedToken
+    bearer = request.headers.get("authorization", "").removeprefix("Bearer ")
+    for raw in {bearer, request.cookies.get("ailab_access"), request.cookies.get("ailab_refresh")}:
+        if not raw:
+            continue
+        try:
+            payload = decode_token(raw)
+            if payload.get("jti"):
+                db.merge(RevokedToken(jti=payload["jti"], expires_at=datetime.fromtimestamp(payload["exp"], timezone.utc)))
+        except ValueError:
+            pass
+    db.commit()
+    response.delete_cookie("ailab_access", path="/")
+    response.delete_cookie("ailab_refresh", path="/api/v1/auth")
+    return {"status":"logged_out"}

@@ -14,7 +14,8 @@ Bu modül RAG altyapısı için kapsamlı REST API endpoint'leri sunar:
 
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
+from src.security.context import principal
 from pydantic import BaseModel, Field
 import time
 import logging
@@ -40,6 +41,11 @@ _COLLECTIONS: Dict[str, RAGPipeline] = {}
 
 def _get_or_create_pipeline(collection_name: str = "default") -> RAGPipeline:
     """Belirtilen koleksiyon için RAGPipeline örneğini getirir veya oluşturur."""
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", collection_name):
+        raise HTTPException(422, "Invalid collection name")
+    actor = principal.get()
+    collection_name = f"{actor.user_id if actor else 'local'}--{collection_name}"
     if collection_name not in _COLLECTIONS:
         # Yeni embedder ile initialize et
         embedder = get_embedder(
@@ -63,7 +69,7 @@ def _get_or_create_pipeline(collection_name: str = "default") -> RAGPipeline:
         )
         
         # Eğer default koleksiyon boşsa, kullanıcıya hazır zengin bir örnek külliyat ilklendir
-        if collection_name == "default" and v_store.count == 0:
+        if collection_name.endswith("--demo") and v_store.count == 0:
             _seed_default_knowledge_base(pipeline)
             
         _COLLECTIONS[collection_name] = pipeline
@@ -204,6 +210,9 @@ class SearchResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
+    mode: Literal["real", "demo", "retrieval"] = "retrieval"
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
     question: str = Field(..., min_length=1, description="Kullanıcı sorusu")
     collection_name: str = Field("default", description="Koleksiyon adı")
     retrieval_mode: str = Field("hybrid", description="'hybrid', 'dense', 'sparse'")
@@ -353,7 +362,12 @@ async def list_collections_api() -> List[CollectionInfo]:
     _get_or_create_pipeline("default")
     
     result: List[CollectionInfo] = []
+    actor = principal.get()
+    prefix = f"{actor.user_id if actor else 'local'}--"
     for name, pipe in _COLLECTIONS.items():
+        if not name.startswith(prefix):
+            continue
+        name = name[len(prefix):]
         result.append(
             CollectionInfo(
                 collection_name=name,
@@ -415,7 +429,21 @@ async def query_rag_api(request: QueryRequest) -> QueryResponse:
     4. Kaynak atıflarını (citations) çıkarır.
     """
     pipeline = _get_or_create_pipeline(request.collection_name)
+    import copy
+    pipeline = copy.copy(pipeline)
+    if request.mode == "real":
+        if not request.model_name or not request.model_version:
+            raise HTTPException(422, "Select a model and version for real RAG")
+        from src.registry.model_registry import ModelRegistry
+        from src.inference.pipeline import InferencePipeline
+        try:
+            info = ModelRegistry("models").load_model(request.model_name, request.model_version, verify_integrity=True)
+            loaded = InferencePipeline.from_pretrained(info["checkpoint_path"], info["tokenizer_path"])
+            pipeline.model, pipeline.tokenizer = loaded.model, loaded.tokenizer
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(422, str(exc)) from exc
     rag_resp = pipeline.query(
+        mode=request.mode,
         question=request.question,
         top_k=request.top_k,
         retrieval_mode=request.retrieval_mode,

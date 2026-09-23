@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class Settings(BaseSettings):
@@ -20,6 +20,21 @@ class Settings(BaseSettings):
         case_sensitive=False
     )
     
+    environment: str = Field(default="development", alias="ENVIRONMENT")
+    seed_demo_users: bool = Field(default=False, alias="SEED_DEMO_USERS")
+    cookie_secure: bool = Field(default=False, alias="COOKIE_SECURE")
+
+    @model_validator(mode="after")
+    def validate_security(self):
+        if self.environment == "production":
+            secret = self.jwt_secret_key or self.secret_key
+            if len(secret) < 32 or secret == "dev-secret-key-change-in-production":
+                raise ValueError("Production requires a unique JWT secret of at least 32 characters")
+            if self.seed_demo_users:
+                raise ValueError("Demo accounts are forbidden in production")
+            self.cookie_secure = True
+        return self
+
     # Backend
     backend_host: str = Field(default="localhost", alias="BACKEND_HOST")
     backend_port: int = Field(default=8000, alias="BACKEND_PORT")

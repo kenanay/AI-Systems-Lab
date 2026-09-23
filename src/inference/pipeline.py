@@ -188,16 +188,14 @@ class InferencePipeline:
         # Load tokenizer
         logger.info(f"Loading tokenizer from {tokenizer_path}...")
         
-        # Check tokenizer type based on file extension
-        tokenizer_path = Path(tokenizer_path)
-        if tokenizer_path.suffix == '.json':
-            from src.tokenizer.bpe import BPETokenizer
-            tokenizer = BPETokenizer.from_file(str(tokenizer_path))
-        else:
-            raise ValueError(f"Unsupported tokenizer format: {tokenizer_path.suffix}")
-        
-        logger.info(f"Tokenizer loaded: vocab_size={tokenizer.get_vocab_size()}")
-        
+        from src.tokenizer.loading import load_tokenizer, artifact_hash
+        tokenizer = load_tokenizer(tokenizer_path)
+        expected = checkpoint.get("tokenizer_sha256") if isinstance(checkpoint, dict) else None
+        if expected and artifact_hash(tokenizer_path) != expected:
+            raise ValueError("Checkpoint/tokenizer fingerprint mismatch")
+        if (tokenizer.get_vocab_size() if hasattr(tokenizer, "get_vocab_size") else tokenizer.vocab_size) > model.config.vocab_size:
+            raise ValueError("Tokenizer vocabulary exceeds model vocabulary")
+
         # Create pipeline
         return cls(
             model=model,
@@ -281,6 +279,10 @@ class InferencePipeline:
         # token_ids: List[int]
         token_ids = self.tokenizer.encode(prompt)
         
+        token_ids = token_ids[-self.model.config.max_seq_len:]
+        if not token_ids:
+            raise ValueError("Prompt contains no tokens")
+
         # Convert to tensor
         # input_ids shape: [1, prompt_len]
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
@@ -323,7 +325,7 @@ class InferencePipeline:
             output_ids = output_ids_tensor[0].tolist()
         
         # Decode
-        generated_text = self.tokenizer.decode(output_ids)
+        generated_text = self.tokenizer.decode(output_ids[prompt_length:])
         
         return generated_text
     

@@ -135,6 +135,9 @@ class BenchmarkRunner:
         """
         logger.info(f"Running {benchmark_name} benchmark on {self.model_name}")
         
+        if max_samples < 1 or batch_size < 1:
+            raise ValueError("Sample and batch counts must be positive")
+        self.dataset_path = dataset_path
         benchmark_id = f"BENCH-{uuid.uuid4().hex[:8].upper()}"
         
         if benchmark_name == "perplexity":
@@ -154,6 +157,7 @@ class BenchmarkRunner:
         else:
             raise ValueError(f"Unsupported benchmark: {benchmark_name}")
         
+        metrics["mode"] = "real"
         result = BenchmarkResult(
             benchmark_id=benchmark_id,
             model_name=self.model_name,
@@ -161,7 +165,7 @@ class BenchmarkRunner:
             score=score,
             metrics=metrics,
             timestamp=datetime.now(),
-            samples_evaluated=max_samples
+            samples_evaluated=int(metrics["samples"])
         )
         
         logger.info(f"Benchmark completed: {benchmark_name} = {score:.2f}")
@@ -179,26 +183,51 @@ class BenchmarkRunner:
         Returns:
             Tuple of (perplexity_score, metrics_dict)
         """
-        # Load model
-        model_info = self.registry.load_model(self.model_name)
-        
-        if not model_info:
-            raise FileNotFoundError(f"Model not found: {self.model_name}")
-        
-        # TODO: Load actual test dataset
-        # Şimdilik dummy perplexity hesaplıyoruz
-        
-        # Simulated perplexity (normally computed on test set)
-        perplexity = 15.0 + (hash(self.model_name) % 10)  # Dummy value
-        
-        metrics = {
-            "perplexity": perplexity,
-            "loss": torch.log(torch.tensor(perplexity)).item(),
-            "samples": max_samples,
-            "batch_size": batch_size
-        }
-        
-        return perplexity, metrics
+        import math
+        import hashlib
+        import json
+        import torch.nn.functional as F
+        if not getattr(self, "dataset_path", None):
+            raise ValueError("Perplexity requires an explicit held-out dataset")
+        path = Path(self.dataset_path)
+        if path.suffix == ".parquet":
+            import pyarrow.parquet as pq
+            rows = pq.read_table(path).to_pylist()
+            texts = [str(row["text"]) for row in rows if row.get("split", "test") == "test"]
+        elif path.suffix == ".jsonl":
+            texts = [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()]
+        else:
+            texts = [line for line in path.read_text().splitlines() if line.strip()]
+        pipeline = self._load_pipeline()
+        nll, tokens, samples = 0.0, 0, 0
+        context = pipeline.model.config.max_seq_len
+        pipeline.model.eval()
+        with torch.inference_mode():
+            for text in texts[:max_samples]:
+                ids = pipeline.tokenizer.encode(text)
+                if len(ids) < 2:
+                    continue
+                samples += 1
+                for offset in range(0, len(ids) - 1, context):
+                    chunk = ids[offset:offset + context + 1]
+                    x = torch.tensor([chunk[:-1]], device=pipeline.device)
+                    y = torch.tensor(chunk[1:], device=pipeline.device)
+                    logits, _ = pipeline.model(x)
+                    nll += F.cross_entropy(logits.reshape(-1, logits.size(-1)), y, reduction="sum").item()
+                    tokens += y.numel()
+        if not tokens:
+            raise ValueError("Test dataset contains no evaluable tokens")
+        loss = nll / tokens
+        score = math.exp(loss)
+        return score, {"perplexity": score, "loss": loss, "samples": samples,
+                       "tokens_evaluated": tokens, "dataset_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    def _load_pipeline(self):
+        from src.inference.pipeline import InferencePipeline
+        info = self.registry.load_model(self.model_name, verify_integrity=True)
+        if not info.get("tokenizer_path"):
+            raise ValueError("Model has no tokenizer; evaluation aborted")
+        return InferencePipeline.from_pretrained(info["checkpoint_path"], info["tokenizer_path"], device=self.device)
 
     def _run_bleu_benchmark(
         self,
@@ -217,19 +246,7 @@ class BenchmarkRunner:
             ("Dünya'nın uydusu nedir?", "Dünya'nın doğal uydusu Ay'dır."),
         ]
         
-        pipeline = None
-        chk_path = model_info.get("checkpoint_path")
-        tok_path = model_info.get("tokenizer_path")
-        if chk_path and tok_path and Path(chk_path).exists() and Path(tok_path).exists():
-            try:
-                from src.inference.pipeline import InferencePipeline
-                pipeline = InferencePipeline.from_pretrained(
-                    model_path=chk_path,
-                    tokenizer_path=tok_path,
-                    device=self.device
-                )
-            except Exception:
-                pipeline = None
+        pipeline = self._load_pipeline()
 
         predictions = []
         references = []
@@ -238,11 +255,11 @@ class BenchmarkRunner:
             if pipeline is not None:
                 try:
                     pred = pipeline.generate(prompt=prompt, max_new_tokens=32, temperature=0.7)
-                    predictions.append(str(pred).strip() if pred else ref)
+                    predictions.append(str(pred).strip() if pred else "")
                 except Exception:
-                    predictions.append(ref)
+                    raise ValueError("Model inference failed; benchmark aborted")
             else:
-                predictions.append(ref)
+                raise ValueError("Model inference failed; benchmark aborted")
                 
         bleu_metrics = evaluate_generation(predictions, references)
         score = bleu_metrics.get("bleu", 0.0)
@@ -274,19 +291,7 @@ class BenchmarkRunner:
             ("Dünya'nın uydusu nedir?", "Dünya'nın doğal uydusu Ay'dır."),
         ]
         
-        pipeline = None
-        chk_path = model_info.get("checkpoint_path")
-        tok_path = model_info.get("tokenizer_path")
-        if chk_path and tok_path and Path(chk_path).exists() and Path(tok_path).exists():
-            try:
-                from src.inference.pipeline import InferencePipeline
-                pipeline = InferencePipeline.from_pretrained(
-                    model_path=chk_path,
-                    tokenizer_path=tok_path,
-                    device=self.device
-                )
-            except Exception:
-                pipeline = None
+        pipeline = self._load_pipeline()
 
         predictions = []
         references = []
@@ -295,11 +300,11 @@ class BenchmarkRunner:
             if pipeline is not None:
                 try:
                     pred = pipeline.generate(prompt=prompt, max_new_tokens=32, temperature=0.7)
-                    predictions.append(str(pred).strip() if pred else ref)
+                    predictions.append(str(pred).strip() if pred else "")
                 except Exception:
-                    predictions.append(ref)
+                    raise ValueError("Model inference failed; benchmark aborted")
             else:
-                predictions.append(ref)
+                raise ValueError("Model inference failed; benchmark aborted")
                 
         rouge_metrics = evaluate_generation(predictions, references)
         score = rouge_metrics.get("rouge-l", 0.0)
@@ -326,19 +331,7 @@ class BenchmarkRunner:
         benchmark = create_gsm8k_cot_benchmark()
         examples = benchmark.examples[:max_samples]
 
-        pipeline = None
-        chk_path = model_info.get("checkpoint_path")
-        tok_path = model_info.get("tokenizer_path")
-        if chk_path and tok_path and Path(chk_path).exists() and Path(tok_path).exists():
-            try:
-                from src.inference.pipeline import InferencePipeline
-                pipeline = InferencePipeline.from_pretrained(
-                    model_path=chk_path,
-                    tokenizer_path=tok_path,
-                    device=self.device
-                )
-            except Exception:
-                pipeline = None
+        pipeline = self._load_pipeline()
 
         def extract_answer(text: str) -> Optional[float]:
             # 1. Look for #### <num>
@@ -376,11 +369,11 @@ class BenchmarkRunner:
                 try:
                     prompt = f"Soru: {ex.input}\nAdım adım çözüm:\n"
                     pred = pipeline.generate(prompt=prompt, max_new_tokens=96, temperature=0.3)
-                    pred_str = str(pred).strip() if pred else target_str
+                    pred_str = str(pred).strip() if pred else ""
                 except Exception:
-                    pred_str = target_str
+                    raise ValueError("Model inference failed; benchmark aborted")
             else:
-                pred_str = target_str
+                raise ValueError("Model inference failed; benchmark aborted")
 
             pred_num = extract_answer(pred_str)
             is_correct = False
@@ -433,19 +426,7 @@ class BenchmarkRunner:
         benchmark = create_turkish_knowledge_benchmark()
         examples = benchmark.examples[:max_samples]
 
-        pipeline = None
-        chk_path = model_info.get("checkpoint_path")
-        tok_path = model_info.get("tokenizer_path")
-        if chk_path and tok_path and Path(chk_path).exists() and Path(tok_path).exists():
-            try:
-                from src.inference.pipeline import InferencePipeline
-                pipeline = InferencePipeline.from_pretrained(
-                    model_path=chk_path,
-                    tokenizer_path=tok_path,
-                    device=self.device
-                )
-            except Exception:
-                pipeline = None
+        pipeline = self._load_pipeline()
 
         correct_count = 0
         details = []
@@ -458,11 +439,11 @@ class BenchmarkRunner:
             if pipeline is not None:
                 try:
                     pred = pipeline.generate(prompt=ex.input, max_new_tokens=48, temperature=0.5)
-                    pred_str = str(pred).strip() if pred else ref_str
+                    pred_str = str(pred).strip() if pred else ""
                 except Exception:
-                    pred_str = ref_str
+                    raise ValueError("Model inference failed; benchmark aborted")
             else:
-                pred_str = ref_str
+                raise ValueError("Model inference failed; benchmark aborted")
 
             predictions.append(pred_str)
             keywords = [k.lower() for k in ex.metadata.get("keywords", [])]
@@ -518,19 +499,7 @@ class BenchmarkRunner:
         benchmark = create_turkish_summarization_benchmark()
         examples = benchmark.examples[:max_samples]
 
-        pipeline = None
-        chk_path = model_info.get("checkpoint_path")
-        tok_path = model_info.get("tokenizer_path")
-        if chk_path and tok_path and Path(chk_path).exists() and Path(tok_path).exists():
-            try:
-                from src.inference.pipeline import InferencePipeline
-                pipeline = InferencePipeline.from_pretrained(
-                    model_path=chk_path,
-                    tokenizer_path=tok_path,
-                    device=self.device
-                )
-            except Exception:
-                pipeline = None
+        pipeline = self._load_pipeline()
 
         details = []
         predictions = []
@@ -545,11 +514,11 @@ class BenchmarkRunner:
             if pipeline is not None:
                 try:
                     pred = pipeline.generate(prompt=ex.input, max_new_tokens=48, temperature=0.6)
-                    pred_str = str(pred).strip() if pred else ref_str
+                    pred_str = str(pred).strip() if pred else ""
                 except Exception:
-                    pred_str = ref_str
+                    raise ValueError("Model inference failed; benchmark aborted")
             else:
-                pred_str = ref_str
+                raise ValueError("Model inference failed; benchmark aborted")
 
             predictions.append(pred_str)
 
@@ -603,19 +572,7 @@ class BenchmarkRunner:
         benchmark = create_turkish_qa_benchmark()
         examples = benchmark.examples[:max_samples]
 
-        pipeline = None
-        chk_path = model_info.get("checkpoint_path")
-        tok_path = model_info.get("tokenizer_path")
-        if chk_path and tok_path and Path(chk_path).exists() and Path(tok_path).exists():
-            try:
-                from src.inference.pipeline import InferencePipeline
-                pipeline = InferencePipeline.from_pretrained(
-                    model_path=chk_path,
-                    tokenizer_path=tok_path,
-                    device=self.device
-                )
-            except Exception:
-                pipeline = None
+        pipeline = self._load_pipeline()
 
         correct_count = 0
         details = []
@@ -633,11 +590,11 @@ class BenchmarkRunner:
             if pipeline is not None:
                 try:
                     pred = pipeline.generate(prompt=ex.input, max_new_tokens=32, temperature=0.3)
-                    pred_str = str(pred).strip() if pred else ref_str
+                    pred_str = str(pred).strip() if pred else ""
                 except Exception:
-                    pred_str = ref_str
+                    raise ValueError("Model inference failed; benchmark aborted")
             else:
-                pred_str = ref_str
+                raise ValueError("Model inference failed; benchmark aborted")
 
             predictions.append(pred_str)
 

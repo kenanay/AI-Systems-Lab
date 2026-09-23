@@ -199,6 +199,7 @@ export default function PlaygroundPage() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/inference/generate/stream`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt,

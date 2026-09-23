@@ -5,7 +5,11 @@ Guided Learning Journey, Knowledge Map & AI Glossary API Router
 Local-First AI Research Lab - Section 56 Architecture
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from sqlalchemy.orm import Session
+from backend.database import get_db
+from backend.models import LearningProgress
+from src.security.context import principal
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import logging
@@ -83,10 +87,27 @@ async def get_glossary(
 
 
 @router.post("/check-question", response_model=CheckQuestionResponse)
-async def check_question(request: CheckQuestionRequest) -> CheckQuestionResponse:
+async def check_question(request: CheckQuestionRequest, db: Session = Depends(get_db)) -> CheckQuestionResponse:
     """
     Aşama sonu mini kontrol sorusunu değerlendirir ve pedagojik açıklama sunar.
     """
     logger.info(f"Checking answer for question: {request.question_id}")
     result = _engine.check_question(request.question_id, request.selected_option)
+    actor = principal.get()
+    if actor:
+        record = db.query(LearningProgress).filter_by(progress_id=actor.user_id).first()
+        if record is None:
+            record = LearningProgress(progress_id=actor.user_id, data={})
+            db.add(record)
+        answers = dict((record.data or {}).get("answers", {}))
+        answers[request.question_id] = {"selected":request.selected_option,"checking":False,"result":result}
+        record.data = {**(record.data or {}),"answers":answers,"last_question":request.question_id}
+        db.commit()
     return CheckQuestionResponse(**result)
+
+
+@router.get("/progress")
+def get_progress(db: Session = Depends(get_db)):
+    actor = principal.get()
+    record = db.query(LearningProgress).filter_by(progress_id=actor.user_id).first()
+    return record.data if record else {"answers": {}, "last_question": None}

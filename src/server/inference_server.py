@@ -187,56 +187,14 @@ class ModelManager:
             load_weights=True
         )
         
-        metadata = model_info['metadata']
-        
-        # Create model config
-        training_config = metadata['training_config']
-        model_config = GPTConfig(
-            vocab_size=training_config.get('vocab_size', 500),
-            max_seq_len=training_config.get('max_seq_len', 64),
-            d_model=training_config.get('d_model', 128),
-            n_layers=training_config.get('n_layers', 4),
-            n_heads=training_config.get('n_heads', 4),
-            d_ff=training_config.get('d_ff', 512),
-            dropout=training_config.get('dropout', 0.1)
-        )
-        
-        # Create and load model
-        self.model = GPTModel(model_config)
-        self.model.load_state_dict(model_info['state_dict'])
-        self.model.to(self.device)
-        self.model.eval()
-        
-        # Load tokenizer
-        tok_path = model_info.get('tokenizer_path')
-        if tok_path and Path(tok_path).exists():
-            try:
-                self.tokenizer = SentencePieceTokenizer()
-                self.tokenizer.load(tok_path)
-            except Exception:
-                try:
-                    from src.tokenizer.bpe import BPETokenizer
-                    self.tokenizer = BPETokenizer.load(tok_path)
-                except Exception as e:
-                    logger.warning(f"Failed to load tokenizer from {tok_path}: {e}")
+        from src.inference.pipeline import InferencePipeline
+        if not model_info.get("tokenizer_path"):
+            raise ValueError("Selected model has no tokenizer")
+        pipeline = InferencePipeline.from_pretrained(
+            model_info["checkpoint_path"], model_info["tokenizer_path"], device=str(self.device))
+        self.model, self.tokenizer = pipeline.model, pipeline.tokenizer
+        self.model_name = f"{model_name} v{model_info['metadata']['version']}"
 
-        # Fallback to model directory if tokenizer still None
-        if self.tokenizer is None:
-            model_dir = Path(model_info.get('model_dir', ''))
-            candidate_tok = model_dir / 'tokenizer.model'
-            if candidate_tok.exists():
-                try:
-                    self.tokenizer = SentencePieceTokenizer()
-                    self.tokenizer.load(str(candidate_tok))
-                except Exception as e:
-                    logger.warning(f"Failed to load fallback tokenizer: {e}")
-        
-        self.model_name = f"{model_name} v{metadata['version']}"
-        
-        logger.info(f"✓ Model loaded: {self.model_name}")
-        logger.info(f"  Parameters: {metadata['parameters']:,}")
-        logger.info(f"  Device: {self.device}")
-    
     def generate(
         self,
         prompt: str,

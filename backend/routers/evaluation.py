@@ -74,8 +74,8 @@ class BenchmarkRunRequest(BaseModel):
     model_name: str = Field(..., description="Model adı (registry'den)")
     benchmark_name: str = Field(..., description="Benchmark adı (perplexity, bleu, rouge)")
     dataset_path: Optional[str] = Field(None, description="Test dataset path (optional)")
-    max_samples: int = Field(100, description="Maximum sample sayısı")
-    batch_size: int = Field(8, description="Batch size")
+    max_samples: int = Field(100, ge=1, le=10000, description="Maximum sample sayısı")
+    batch_size: int = Field(8, ge=1, le=128, description="Batch size")
     
     class Config:
         json_schema_extra = {
@@ -118,7 +118,8 @@ class BenchmarkResultResponse(BaseModel):
 
 class ModelComparisonRequest(BaseModel):
     """Model karşılaştırma request."""
-    model_names: List[str] = Field(..., description="Karşılaştırılacak model isimleri")
+    dataset_path: Optional[str] = None
+    model_names: List[str] = Field(..., min_length=1, description="Karşılaştırılacak model isimleri")
     benchmark_name: str = Field(..., description="Benchmark adı")
     
     class Config:
@@ -181,6 +182,7 @@ class RadarModelScore(BaseModel):
 
 
 class RadarComparisonRequest(BaseModel):
+    dataset_path: Optional[str] = None
     """Çoklu model radar kıyaslama request."""
     model_names: List[str] = Field(..., min_length=1, max_length=6, description="Karşılaştırılacak modeller (1-6 model)")
 
@@ -390,6 +392,7 @@ async def compare_models(
             
             result = runner.run_benchmark(
                 benchmark_name=request.benchmark_name,
+                dataset_path=request.dataset_path,
                 max_samples=50,  # Smaller sample for comparison
                 batch_size=8
             )
@@ -658,64 +661,51 @@ async def compare_models_radar(
         # 1. Reasoning (GSM8K CoT)
         try:
             r_res = runner.run_benchmark("gsm8k_cot", max_samples=8)
-            reasoning_score = max(5.0, min(100.0, float(r_res.score)))
+            reasoning_score = max(0.0, min(100.0, float(r_res.score)))
             reasoning_raw = reasoning_score
-        except Exception:
-            h = abs(hash(model_name))
-            reasoning_score = 45.0 + (h % 45)
-            reasoning_raw = reasoning_score
+        except Exception as exc:
+            raise HTTPException(422, f"Real benchmark unavailable: {exc}") from exc
 
         # 2. Knowledge (Turkish)
         try:
             k_res = runner.run_benchmark("turkish_knowledge", max_samples=8)
-            knowledge_score = max(5.0, min(100.0, float(k_res.score)))
+            knowledge_score = max(0.0, min(100.0, float(k_res.score)))
             knowledge_raw = knowledge_score
-        except Exception:
-            h = abs(hash(model_name + "_k"))
-            knowledge_score = 50.0 + (h % 42)
-            knowledge_raw = knowledge_score
+        except Exception as exc:
+            raise HTTPException(422, f"Real benchmark unavailable: {exc}") from exc
 
         # 3. QA & Reading Comprehension (Turkish QA)
         try:
             qa_res = runner.run_benchmark("turkish_qa", max_samples=8)
             qa_raw = float(qa_res.score)
-            qa_score = max(5.0, min(100.0, qa_raw))
-        except Exception:
-            h = abs(hash(model_name + "_qa"))
-            qa_score = 52.0 + (h % 40)
-            qa_raw = qa_score
+            qa_score = max(0.0, min(100.0, qa_raw))
+        except Exception as exc:
+            raise HTTPException(422, f"Real benchmark unavailable: {exc}") from exc
 
         # 4. Summarization (Turkish Summarization)
         try:
             sm_res = runner.run_benchmark("turkish_summarization", max_samples=8)
             sm_raw = float(sm_res.score)
-            sm_score = max(5.0, min(100.0, sm_raw * 100.0 if sm_raw <= 1.0 else sm_raw))
-        except Exception:
-            h = abs(hash(model_name + "_sm"))
-            sm_score = 48.0 + (h % 44)
-            sm_raw = sm_score / 100.0
+            sm_score = max(0.0, min(100.0, sm_raw * 100.0 if sm_raw <= 1.0 else sm_raw))
+        except Exception as exc:
+            raise HTTPException(422, f"Real benchmark unavailable: {exc}") from exc
 
         # 5. Fluency (BLEU & ChrF)
         try:
             b_res = runner.run_benchmark("bleu", max_samples=8)
-            fluency_score = max(5.0, min(100.0, float(b_res.score)))
+            fluency_score = max(0.0, min(100.0, float(b_res.score)))
             fluency_raw = fluency_score
-        except Exception:
-            h = abs(hash(model_name + "_b"))
-            fluency_score = 40.0 + (h % 50)
-            fluency_raw = fluency_score
+        except Exception as exc:
+            raise HTTPException(422, f"Real benchmark unavailable: {exc}") from exc
 
         # 6. Stability (Perplexity inverse)
         try:
-            p_res = runner.run_benchmark("perplexity", max_samples=8)
+            p_res = runner.run_benchmark("perplexity", dataset_path=request.dataset_path, max_samples=8)
             ppl = float(p_res.score)
             stability_raw = ppl
-            stability_score = max(10.0, min(95.0, 100.0 - (ppl - 5.0) * 2.0))
-        except Exception:
-            h = abs(hash(model_name + "_p"))
-            ppl = 15.0 + (h % 15)
-            stability_raw = ppl
-            stability_score = max(10.0, min(95.0, 100.0 - (ppl - 5.0) * 2.0))
+            stability_score = max(0.0, min(100.0, 100.0 - (ppl - 5.0) * 2.0))
+        except Exception as exc:
+            raise HTTPException(422, f"Real benchmark unavailable: {exc}") from exc
 
         dim_scores = [
             RadarDimensionScore(
