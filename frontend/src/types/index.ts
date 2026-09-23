@@ -119,3 +119,5 @@ export interface UploadProgress {
   status: 'pending' | 'uploading' | 'processing' | 'success' | 'error';
   error?: string;
 }
+
+export * from './auth';

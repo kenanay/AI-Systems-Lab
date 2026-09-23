@@ -31,11 +31,18 @@ class Settings(BaseSettings):
         alias="DATABASE_URL"
     )
     
-    # Security
+    # Security & Auth
     secret_key: str = Field(
         default="dev-secret-key-change-in-production",
         alias="SECRET_KEY"
     )
+    jwt_secret_key: Optional[str] = Field(default=None, alias="JWT_SECRET_KEY")
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(default=60, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    refresh_token_expire_days: int = Field(default=14, alias="REFRESH_TOKEN_EXPIRE_DAYS")
+    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
+    default_admin_password: str = Field(default="admin", alias="DEFAULT_ADMIN_PASSWORD")
+    default_researcher_password: str = Field(default="researcher123", alias="DEFAULT_RESEARCHER_PASSWORD")
     
     # Data Paths
     data_root: Path = Field(default=Path("./datasets"), alias="DATA_ROOT")

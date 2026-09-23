@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse
 
 from backend.config import settings
 from backend.database import init_db
-from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation, embeddings, rag, tensor_lab, math_lab, transformer_lab, journey, systems_lab, synthetic_lab, nn_lab
+from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation, embeddings, rag, tensor_lab, math_lab, transformer_lab, journey, systems_lab, synthetic_lab, nn_lab, auth
 
 # Logger yapılandırması
 logging.basicConfig(
@@ -98,6 +98,7 @@ app.include_router(journey.router)
 app.include_router(systems_lab.router)
 app.include_router(synthetic_lab.router)
 app.include_router(nn_lab.router)
+app.include_router(auth.router)
 
 
 @app.get("/")

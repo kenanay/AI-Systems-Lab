@@ -69,16 +69,56 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def seed_default_users() -> None:
+    """
+    Eğer hiç kullanıcı yoksa varsayılan admin ve researcher hesaplarını oluşturur.
+    """
+    from backend.models import UserRecord
+    from backend.security.password import hash_password
+    
+    db = SessionLocal()
+    try:
+        user_count = db.query(UserRecord).count()
+        if user_count == 0:
+            logger.info("🌱 Varsayılan kullanıcılar veritabanına ekleniyor...")
+            admin_user = UserRecord(
+                username="admin",
+                email="admin@ailab.local",
+                hashed_password=hash_password(settings.default_admin_password),
+                role="admin",
+                full_name="System Administrator",
+                is_active=True
+            )
+            researcher_user = UserRecord(
+                username="researcher",
+                email="researcher@ailab.local",
+                hashed_password=hash_password(settings.default_researcher_password),
+                role="researcher",
+                full_name="AI Researcher",
+                is_active=True
+            )
+            db.add(admin_user)
+            db.add(researcher_user)
+            db.commit()
+            logger.info("✅ Varsayılan admin ve researcher kullanıcıları oluşturuldu.")
+    except Exception as e:
+        logger.error(f"Kullanıcı seed işlemi sırasında hata oluştu: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def init_db() -> None:
     """
     Database'i initialize et.
     
-    Tüm tabloları oluşturur.
+    Tüm tabloları oluşturur ve başlangıç kullanıcılarını yükler.
     """
     logger.info("Initializing database...")
     import backend.models  # Ensure all models are registered with Base.metadata
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialized successfully")
+    seed_default_users()
 
 
 def drop_db() -> None:

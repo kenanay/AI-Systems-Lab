@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/lib/auth-context';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Ana Sayfa', icon: '🏠' },
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const { user, isAuthenticated } = useAuth();
   const [engineStatus, setEngineStatus] = useState<'online' | 'checking' | 'offline'>('checking');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -96,7 +98,7 @@ export function Navbar() {
             })}
           </nav>
 
-          {/* Right Status Indicator */}
+          {/* Right Status Indicator & Auth */}
           <div className="flex items-center space-x-3">
             <div className="hidden sm:flex items-center space-x-2 px-3 py-1 rounded-full text-xs bg-gray-100/90 border border-gray-200">
               <span
@@ -112,6 +114,30 @@ export function Navbar() {
                 {engineStatus === 'online' ? 'Engine Ready' : engineStatus === 'checking' ? 'Connecting...' : 'Engine Standby'}
               </span>
             </div>
+
+            {/* User Profile or Login Button */}
+            {isAuthenticated && user ? (
+              <Link
+                href="/profile"
+                className="flex items-center space-x-2 px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-all text-xs"
+              >
+                <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
+                  {user.username.charAt(0).toUpperCase()}
+                </div>
+                <span className="font-semibold text-gray-800 hidden lg:inline">@{user.username}</span>
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                  {user.role}
+                </span>
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium text-xs shadow-sm transition-all"
+              >
+                <span>🔑</span>
+                <span>Giriş Yap</span>
+              </Link>
+            )}
 
             {/* Mobile Menu Button */}
             <button
@@ -153,6 +179,29 @@ export function Navbar() {
               </Link>
             );
           })}
+
+          {/* Mobile Auth Item */}
+          <div className="pt-2 border-t border-gray-100">
+            {isAuthenticated && user ? (
+              <Link
+                href="/profile"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center space-x-3 px-3 py-2.5 rounded-md text-base font-semibold bg-blue-50 text-blue-700"
+              >
+                <span>👤</span>
+                <span>@{user.username} ({user.role}) - Profil & API</span>
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center space-x-3 px-3 py-2.5 rounded-md text-base font-semibold bg-blue-600 text-white"
+              >
+                <span>🔑</span>
+                <span>Giriş Yap / Kayıt Ol</span>
+              </Link>
+            )}
+          </div>
         </div>
       )}
     </header>

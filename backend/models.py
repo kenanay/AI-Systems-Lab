@@ -509,3 +509,86 @@ class BenchmarkRecord(Base):
 # Type alias for model imports
 Document = DocumentRecord
 
+
+class UserRecord(Base):
+    """
+    Kullanıcı Kimlik ve Yetkilendirme Kaydı.
+    """
+    __tablename__ = "users"
+    
+    user_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True, default=lambda: f"usr_{uuid.uuid4().hex[:12]}")
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="researcher", nullable=False)  # admin, researcher, viewer
+    full_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=utc_now, onupdate=utc_now, nullable=True)
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships
+    api_keys: Mapped[List["APIKeyRecord"]] = relationship("APIKeyRecord", back_populates="user", cascade="all, delete-orphan")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        c_at = getattr(self, "created_at", None)
+        c_at_str = c_at.isoformat() if isinstance(c_at, datetime) else str(c_at or "")
+        ll = getattr(self, "last_login", None)
+        ll_str = ll.isoformat() if isinstance(ll, datetime) else (str(ll) if ll else None)
+        return {
+            "user_id": str(self.user_id),
+            "username": str(self.username),
+            "email": str(self.email),
+            "role": str(self.role),
+            "full_name": self.full_name,
+            "is_active": bool(self.is_active),
+            "created_at": c_at_str,
+            "last_login": ll_str,
+        }
+
+    def __repr__(self) -> str:
+        return f"<UserRecord(id={self.user_id}, username={self.username}, role={self.role})>"
+
+
+class APIKeyRecord(Base):
+    """
+    Headless Servisler, CLI ve Python SDK için API Anahtarı Kaydı.
+    """
+    __tablename__ = "api_keys"
+    
+    key_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True, default=lambda: f"key_{uuid.uuid4().hex[:12]}")
+    user_id: Mapped[str] = mapped_column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="researcher", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships
+    user: Mapped["UserRecord"] = relationship("UserRecord", back_populates="api_keys")
+
+    def to_dict(self) -> Dict[str, Any]:
+        c_at = getattr(self, "created_at", None)
+        c_at_str = c_at.isoformat() if isinstance(c_at, datetime) else str(c_at or "")
+        lu = getattr(self, "last_used_at", None)
+        lu_str = lu.isoformat() if isinstance(lu, datetime) else (str(lu) if lu else None)
+        exp = getattr(self, "expires_at", None)
+        exp_str = exp.isoformat() if isinstance(exp, datetime) else (str(exp) if exp else None)
+        return {
+            "key_id": str(self.key_id),
+            "user_id": str(self.user_id),
+            "name": str(self.name),
+            "key_prefix": str(self.key_prefix),
+            "role": str(self.role),
+            "is_active": bool(self.is_active),
+            "created_at": c_at_str,
+            "expires_at": exp_str,
+            "last_used_at": lu_str,
+        }
+
+    def __repr__(self) -> str:
+        return f"<APIKeyRecord(id={self.key_id}, name={self.name}, prefix={self.key_prefix})>"
+

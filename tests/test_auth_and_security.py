@@ -1,0 +1,262 @@
+"""
+Unit and Integration Tests for Auth & Security Module
+
+Parola hashleme, JWT token yaşam döngüsü, API Key yönetimi,
+Rate Limiter ve /api/v1/auth endpoint testleri.
+
+Author: Kenan AY
+"""
+
+import time
+from datetime import timedelta
+import pytest
+from fastapi.testclient import TestClient
+
+from typing import Generator
+from backend.database import init_db
+from backend.main import app
+from backend.models import UserRecord, APIKeyRecord
+from backend.security.password import hash_password, verify_password
+from backend.security.jwt import create_access_token, create_refresh_token, decode_token
+from backend.security.api_keys import generate_api_key, hash_api_key
+from backend.security.rate_limiter import SlidingWindowRateLimiter, global_rate_limiter
+
+
+@pytest.fixture(scope="function")
+def client() -> Generator[TestClient, None, None]:
+    init_db()
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+# ============================================================================
+# 1. Parola Güvenliği Testleri
+# ============================================================================
+
+def test_password_hashing_and_verification():
+    raw_pass = "GuvenliParola_2026!"
+    hashed = hash_password(raw_pass)
+
+    assert hashed.startswith("pbkdf2_sha256$100000$")
+    assert verify_password(raw_pass, hashed) is True
+    assert verify_password("YanlisParola", hashed) is False
+    assert verify_password("", hashed) is False
+    assert verify_password(raw_pass, "") is False
+
+
+def test_password_tamper_resistance():
+    raw_pass = "Test1234!"
+    hashed = hash_password(raw_pass)
+    # Manipüle edilmiş hash
+    parts = hashed.split("$")
+    corrupted = f"{parts[0]}${parts[1]}${parts[2]}${'0' * len(parts[3])}"
+    assert verify_password(raw_pass, corrupted) is False
+
+
+# ============================================================================
+# 2. JWT Token Testleri
+# ============================================================================
+
+def test_jwt_access_and_refresh_tokens():
+    payload = {"sub": "usr_test123", "username": "testuser", "role": "researcher"}
+    
+    access_tok = create_access_token(payload, expires_delta=timedelta(minutes=15))
+    decoded_access = decode_token(access_tok)
+    
+    assert decoded_access["sub"] == "usr_test123"
+    assert decoded_access["username"] == "testuser"
+    assert decoded_access["role"] == "researcher"
+    assert decoded_access["type"] == "access"
+    assert "exp" in decoded_access
+    assert "iat" in decoded_access
+
+    refresh_tok = create_refresh_token(payload, expires_delta=timedelta(days=7))
+    decoded_refresh = decode_token(refresh_tok)
+    assert decoded_refresh["sub"] == "usr_test123"
+    assert decoded_refresh["type"] == "refresh"
+
+
+def test_jwt_tamper_and_expiration():
+    payload = {"sub": "usr_test123"}
+    # Süresi geçmiş token
+    expired_tok = create_access_token(payload, expires_delta=timedelta(seconds=-10))
+    with pytest.raises(ValueError, match="expired"):
+        decode_token(expired_tok, verify_exp=True)
+
+    # İmzası bozulmuş token
+    valid_tok = create_access_token(payload, expires_delta=timedelta(minutes=10))
+    parts = valid_tok.split(".")
+    tampered_sig = parts[0] + "." + parts[1] + ".invalidSignature123"
+    with pytest.raises(ValueError, match="imzası doğrulanamadı"):
+        decode_token(tampered_sig)
+
+
+# ============================================================================
+# 3. API Key Testleri
+# ============================================================================
+
+def test_api_key_generation_and_hashing():
+    raw_key, prefix, key_hash = generate_api_key(prefix="sk_live")
+    
+    assert raw_key.startswith("sk_live_")
+    assert prefix.startswith("sk_live_")
+    assert prefix.endswith("...")
+    assert len(key_hash) == 64
+    assert hash_api_key(raw_key) == key_hash
+    assert hash_api_key("sk_live_fakedifferent") != key_hash
+
+
+# ============================================================================
+# 4. Rate Limiter Testleri
+# ============================================================================
+
+def test_sliding_window_rate_limiter():
+    limiter = SlidingWindowRateLimiter()
+    key = "client_ip_test_1"
+
+    # 3 istek/saniye kotası
+    allowed1, rem1, _ = limiter.is_allowed(key, max_requests=3, window_seconds=2)
+    assert allowed1 is True
+    assert rem1 == 2
+
+    allowed2, rem2, _ = limiter.is_allowed(key, max_requests=3, window_seconds=2)
+    assert allowed2 is True
+    assert rem2 == 1
+
+    allowed3, rem3, _ = limiter.is_allowed(key, max_requests=3, window_seconds=2)
+    assert allowed3 is True
+    assert rem3 == 0
+
+    # 4. istek kotayı aşmalı
+    allowed4, rem4, retry_after = limiter.is_allowed(key, max_requests=3, window_seconds=2)
+    assert allowed4 is False
+    assert rem4 == 0
+    assert retry_after >= 1
+
+
+# ============================================================================
+# 5. Auth API Entegrasyon Testleri
+# ============================================================================
+
+def test_auth_register_and_login_flow(client: TestClient):
+    import uuid
+    global_rate_limiter.reset()
+
+    uid = uuid.uuid4().hex[:8]
+    test_uname = f"deniz_{uid}"
+    test_email = f"deniz_{uid}@ailab.local"
+
+    # 1. Register
+    reg_data = {
+        "username": test_uname,
+        "email": test_email,
+        "password": "GucluSifre2026*",
+        "full_name": "Dr. Deniz Kaya",
+        "role": "researcher"
+    }
+    res_reg = client.post("/api/v1/auth/register", json=reg_data)
+    assert res_reg.status_code == 201
+    user_info = res_reg.json()["user"]
+    assert user_info["username"] == test_uname
+    assert user_info["role"] == "researcher"
+
+    # Duplicate username check
+    res_dup = client.post("/api/v1/auth/register", json=reg_data)
+    assert res_dup.status_code == 400
+
+    # 2. Login
+    login_data = {
+        "username_or_email": test_uname,
+        "password": "GucluSifre2026*"
+    }
+    res_login = client.post("/api/v1/auth/login", json=login_data)
+    assert res_login.status_code == 200
+    token_resp = res_login.json()
+    assert "access_token" in token_resp
+    assert "refresh_token" in token_resp
+    assert token_resp["token_type"] == "bearer"
+    access_token = token_resp["access_token"]
+    refresh_token = token_resp["refresh_token"]
+
+    # 3. GET /me with Bearer token
+    headers = {"Authorization": f"Bearer {access_token}"}
+    res_me = client.get("/api/v1/auth/me", headers=headers)
+    assert res_me.status_code == 200
+    me_data = res_me.json()
+    assert me_data["user"]["username"] == test_uname
+    assert me_data["permissions"]["can_train"] is True
+    assert me_data["permissions"]["can_delete_models"] is False  # Researcher cannot delete models
+
+    # 4. Refresh Token Flow
+    res_ref = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert res_ref.status_code == 200
+    new_access_token = res_ref.json()["access_token"]
+    assert new_access_token != ""
+
+    # 5. Create API Key
+    res_key = client.post(
+        "/api/v1/auth/api-keys",
+        json={"name": "Test Key for PyTest", "expires_in_days": 30},
+        headers=headers
+    )
+    assert res_key.status_code == 201
+    key_data = res_key.json()
+    assert "raw_key" in key_data
+    raw_api_key = key_data["raw_key"]
+    key_id = key_data["key_id"]
+    assert raw_api_key.startswith("sk_live_")
+
+    # 6. Authenticate with X-API-Key
+    res_me_key = client.get("/api/v1/auth/me", headers={"X-API-Key": raw_api_key})
+    assert res_me_key.status_code == 200
+    assert res_me_key.json()["user"]["username"] == test_uname
+
+    # 7. List and Delete API Key
+    res_list_keys = client.get("/api/v1/auth/api-keys", headers=headers)
+    assert res_list_keys.status_code == 200
+    keys_list = res_list_keys.json()
+    assert len(keys_list) >= 1
+    assert "raw_key" not in keys_list[0] or keys_list[0]["raw_key"] is None
+
+    res_del_key = client.delete(f"/api/v1/auth/api-keys/{key_id}", headers=headers)
+    assert res_del_key.status_code == 200
+
+
+def test_rbac_admin_vs_researcher(client: TestClient):
+    global_rate_limiter.reset()
+
+    # Varsayılan seed edilmiş admin ile giriş
+    login_admin = client.post("/api/v1/auth/login", json={
+        "username_or_email": "admin",
+        "password": "admin"
+    })
+    assert login_admin.status_code == 200
+    admin_token = login_admin.json()["access_token"]
+
+    # Researcher kullanıcısı ile giriş
+    login_res = client.post("/api/v1/auth/login", json={
+        "username_or_email": "researcher",
+        "password": "researcher123"
+    })
+    assert login_res.status_code == 200
+    researcher_token = login_res.json()["access_token"]
+
+    # 1. Admin /users listesini çekebilir
+    res_admin_users = client.get("/api/v1/auth/users", headers={"Authorization": f"Bearer {admin_token}"})
+    assert res_admin_users.status_code == 200
+    assert res_admin_users.json()["total"] >= 2
+
+    # 2. Researcher /users endpoint'ine erişmeye çalıştığında 403 Forbidden almalıdır
+    res_unauth_users = client.get("/api/v1/auth/users", headers={"Authorization": f"Bearer {researcher_token}"})
+    assert res_unauth_users.status_code == 403
+    assert "yetkiniz yetersiz" in res_unauth_users.json()["detail"].lower()
+
+
+def test_unauthenticated_requests(client: TestClient):
+    # Token olmadan korumalı endpoint'e erişim
+    res_no_auth = client.get("/api/v1/auth/me")
+    assert res_no_auth.status_code == 401
+
+    # Geçersiz token
+    res_bad_tok = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer bad.token.here"})
+    assert res_bad_tok.status_code == 401

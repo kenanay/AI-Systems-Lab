@@ -13,6 +13,9 @@ import type {
   IngestionStats,
   BatchProcessResponse,
   ExportResponse,
+  APIKeyItem,
+  CreateAPIKeyRequest,
+  User,
 } from '@/types';
 
 // API base URL
@@ -27,9 +30,15 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor (logging)
+// Request interceptor (logging & auth)
 apiClient.interceptors.request.use(
   (config) => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('ailab_access_token');
+      if (token && !config.headers.Authorization) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
     console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
@@ -2541,6 +2550,60 @@ export const mathLabApi = {
 };
 
 // ============================================================================
+// Auth & Security API
+// ============================================================================
+
+export const authApi = {
+  /**
+   * Kullanıcının API anahtarlarını listele
+   */
+  getApiKeys: async (): Promise<APIKeyItem[]> => {
+    const response = await apiClient.get<APIKeyItem[]>('/api/v1/auth/api-keys');
+    return response.data;
+  },
+
+  /**
+   * Yeni API anahtarı üret
+   */
+  createApiKey: async (data: CreateAPIKeyRequest): Promise<APIKeyItem> => {
+    const response = await apiClient.post<APIKeyItem>('/api/v1/auth/api-keys', data);
+    return response.data;
+  },
+
+  /**
+   * API anahtarını iptal et / sil
+   */
+  revokeApiKey: async (keyId: string): Promise<{ message: string }> => {
+    const response = await apiClient.delete<{ message: string }>(`/api/v1/auth/api-keys/${keyId}`);
+    return response.data;
+  },
+
+  /**
+   * Kullanıcı profili güncelle
+   */
+  updateProfile: async (data: { full_name?: string; current_password?: string; new_password?: string }): Promise<any> => {
+    const response = await apiClient.put('/api/v1/auth/profile', data);
+    return response.data;
+  },
+
+  /**
+   * Tüm kullanıcıları listele (Admin)
+   */
+  getUsers: async (skip = 0, limit = 50): Promise<{ total: number; users: User[] }> => {
+    const response = await apiClient.get<{ total: number; users: User[] }>(`/api/v1/auth/users?skip=${skip}&limit=${limit}`);
+    return response.data;
+  },
+
+  /**
+   * Kullanıcı rolünü güncelle (Admin)
+   */
+  updateUserRole: async (userId: string, role: string): Promise<any> => {
+    const response = await apiClient.patch(`/api/v1/auth/users/${userId}/role`, { role });
+    return response.data;
+  },
+};
+
+// ============================================================================
 // Export unified API client
 // ============================================================================
 
@@ -2562,6 +2625,7 @@ export const api = {
   nnLab: nnLabApi,
   mathLab: mathLabApi,
   system: systemApi,
+  auth: authApi,
 };
 
 export default api;
