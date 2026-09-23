@@ -24,7 +24,13 @@ from backend.security.rate_limiter import SlidingWindowRateLimiter, global_rate_
 
 @pytest.fixture(scope="function")
 def client() -> Generator[TestClient, None, None]:
+    from backend.config import settings
+    from backend.database import seed_default_users
+    orig_seed = settings.seed_demo_users
+    settings.seed_demo_users = True
     init_db()
+    seed_default_users()
+    settings.seed_demo_users = orig_seed
     with TestClient(app) as test_client:
         yield test_client
 

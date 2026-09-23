@@ -42,9 +42,13 @@ def setup_test_document():
                 relative_path="tests/fixtures/test_sample.md",
                 mime_type="text/markdown",
                 size_bytes=100,
+                training_allowed=True,
                 sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
             )
             db.add(file)
+            db.commit()
+        else:
+            file.training_allowed = True
             db.commit()
 
         doc = db.query(DocumentRecord).filter(DocumentRecord.file_id == "FILE-ED8B9094").first()
