@@ -168,7 +168,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         (UserRecord.username == identifier) | (UserRecord.email == identifier)
     ).first()
 
-    if not user or not verify_password(req.password, user.hashed_password):
+    if not user or not verify_password(req.password, str(user.hashed_password)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Kullanıcı adı veya parola hatalı.",
@@ -295,7 +295,7 @@ def update_profile(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Parola değiştirmek için mevcut parolanızı girmelisiniz."
             )
-        if not verify_password(req.current_password, current_user.hashed_password):
+        if not verify_password(req.current_password, str(current_user.hashed_password)):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Mevcut parolanız hatalı."
