@@ -29,7 +29,7 @@ jest.mock('axios', () => {
     response: { use: jest.fn(), eject: jest.fn() },
   };
 
-  const mAxios = {
+  const mAxios: any = {
     create: jest.fn(() => mAxios),
     defaults: defaultsObj,
     get: getFn,
