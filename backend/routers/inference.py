@@ -147,31 +147,42 @@ def load_model(
 ) -> Dict[str, Any]:
     """
     Belirtilen modeli belleğe yükler.
-    Model ve tokenizer uyumluluğunu sunucu kayıtlarından doğrular.
+    Model ve tokenizer uyumluluğunu sunucu kayıtlarından ZORUNLU olarak doğrular.
     """
-    if request.tokenizer_id:
-        compat_service = CompatibilityService(db)
-        compat = compat_service.verify(
-            model_name=request.model_name,
-            model_version=request.version,
-            tokenizer_id=request.tokenizer_id
+    # 1. Güvenli registry dizini belirle (istemciden gelen kontrolsüz yol manipülasyonunu engelle)
+    safe_registry_dir = "models"
+    if request.registry_dir and request.registry_dir != "models":
+        from pathlib import Path
+        reg_path = Path(request.registry_dir)
+        if ".." in reg_path.parts or reg_path.is_absolute():
+            raise HTTPException(status_code=400, detail="Geçersiz veya güvensiz registry_dir parametresi")
+        safe_registry_dir = str(reg_path)
+
+    # 2. ZORUNLU model ve tokenizer doğrulama: tokenizer_id belirtilmemiş olsa dahi
+    # modelin sunucudaki kayıtlı metadata'sı ve ilişkili tokenizer'ı doğrulanır.
+    compat_service = CompatibilityService(db, registry_dir=safe_registry_dir)
+    compat = compat_service.verify(
+        model_name=request.model_name,
+        model_version=request.version,
+        tokenizer_id=request.tokenizer_id
+    )
+    if not compat.compatible:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model ve tokenizer uyumsuzluğu: {'; '.join(compat.errors)}"
         )
-        if not compat.compatible:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model ve tokenizer uyumsuzluğu: {'; '.join(compat.errors)}"
-            )
 
     try:
         manager.load_model(
-            registry_dir=request.registry_dir,
+            registry_dir=safe_registry_dir,
             model_name=request.model_name,
             version=request.version
         )
         return {
             "status": "success",
             "message": f"Model {request.model_name} başarıyla yüklendi",
-            "model_name": manager.model_name
+            "model_name": manager.model_name,
+            "verification": compat.checks
         }
     except Exception as e:
         logger.error(f"Failed to load model {request.model_name}: {e}")

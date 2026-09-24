@@ -59,6 +59,15 @@ def load_artifacts(db, dataset_id, tokenizer_id):
     tok = db.query(TokenizerRecord).filter_by(tokenizer_id=tokenizer_id, is_active=True).first()
     if ds is None or tok is None:
         raise ValueError('Dataset or tokenizer not found or inaccessible')
+
+    # Preflight Yetki Kontrolü: Kullanıcı erişimini doğrula
+    actor = principal.get()
+    if actor and actor.role != 'admin':
+        if getattr(ds, 'owner_id', None) and ds.owner_id != actor.user_id:
+            raise ValueError('Bu veri kümesine erişim yetkiniz bulunmuyor.')
+        if getattr(tok, 'owner_id', None) and tok.owner_id != actor.user_id:
+            raise ValueError('Bu tokenizer kaydına erişim yetkiniz bulunmuyor.')
+
     if ds.tokenizer_id != tokenizer_id:
         raise ValueError('Dataset was compiled with a different tokenizer')
     fingerprints = ds.custom_metadata or {}
@@ -88,6 +97,41 @@ class TrainingService:
         ModelRegistry._validate_identifier(model_name)
         ds, tok, tokenizer, fingerprints = load_artifacts(self.db, dataset_id, tokenizer_id)
         config.update(fingerprints)
+
+        # Preflight Kontrolü: Tokenizer ve Model Sözlük Boyutu Sınır Aşımı (Index Overflow Önleme)
+        tok_vocab = getattr(tokenizer, "vocab_size", None) or (tokenizer.get_vocab_size() if hasattr(tokenizer, "get_vocab_size") else None) or tok.vocab_size
+        model_vocab = config.get("vocab_size") or tok_vocab
+        if config.get("vocab_size") and config["vocab_size"] < tok_vocab:
+            raise ValueError(f"Model sözlük boyutu ({config['vocab_size']}), tokenizer sözlük boyutundan ({tok_vocab}) küçük olamaz!")
+
+        # Preflight Kontrolü: Derlenmiş veri kümesindeki token kimliklerinin model sınırları içinde kaldığını doğrula
+        if ds.storage_path and Path(ds.storage_path).exists():
+            try:
+                import pyarrow.parquet as pq
+                schema = pq.read_schema(ds.storage_path)
+                if "token_ids" in schema.names:
+                    import pandas as pd
+                    df = pd.read_parquet(ds.storage_path, columns=["token_ids"])
+                    for token_list in df["token_ids"].dropna():
+                        if len(token_list) > 0:
+                            max_id = max(token_list)
+                            if max_id >= model_vocab:
+                                raise ValueError(f"Derlenmiş veri kümesindeki maksimum token kimliği ({max_id}), model sözlük sınırını ({model_vocab}) aşıyor!")
+            except ValueError as e:
+                if "sözlük sınırını" in str(e):
+                    raise e
+                logger.warning(f"Could not check parquet token boundaries: {e}")
+            except Exception as e:
+                logger.warning(f"Could not check parquet token boundaries: {e}")
+
+        # Preflight Manifesti: Artefakt sürümlerini ve özetlerini dondur
+        config["dataset_version"] = getattr(ds, "version", None) or ds.dataset_id
+        config["tokenizer_name"] = tok.name
+        config["tokenizer_vocab_size"] = tok_vocab
+        config["model_vocab_size"] = model_vocab
+        config["manifest_frozen"] = True
+        config["preflight_verified_at"] = datetime.now(timezone.utc).isoformat()
+
         if job_type != 'PRETRAIN':
             if not config.get('base_model') or not config.get('base_version'):
                 raise ValueError('Fine-tuning requires a base model and explicit version')

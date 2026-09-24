@@ -488,4 +488,56 @@ def test_path_traversal_prevention_in_storage_manager():
         storage_manager.get_file_path("../../../../../system/secrets.json")
 
 
+def test_file_upload_user_isolation_and_deduplication(client):
+    """Farklı kullanıcılar aynı içeriği yüklediğinde kullanıcı kayıtlarının izole edildiğini doğrula."""
+    # Kullanıcı A (researcher) ve Kullanıcı B (admin) için token al
+    login_a = client.post("/api/v1/auth/login", json={"username_or_email": "researcher", "password": "researcher123"})
+    token_a = login_a.json()["access_token"]
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    login_b = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    token_b = login_b.json()["access_token"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+    import uuid
+    unique_marker = str(uuid.uuid4())
+    common_content = f"Ortak icerik metni - deduplication ve izolasyon testi {unique_marker}".encode()
+
+    # 1. Kullanıcı A dosyayı yükler
+    res_a = client.post(
+        "/api/v1/files/upload",
+        files={"file": ("shared_doc.txt", common_content, "text/plain")},
+        headers=headers_a
+    )
+    assert res_a.status_code == 201
+    data_a = res_a.json()
+    file_id_a = data_a["file_id"]
+    assert data_a["is_duplicate"] is False
+
+    # 2. Kullanıcı B aynı fiziksel içeriği yükler
+    res_b = client.post(
+        "/api/v1/files/upload",
+        files={"file": ("shared_doc.txt", common_content, "text/plain")},
+        headers=headers_b
+    )
+    assert res_b.status_code == 201
+    data_b = res_b.json()
+    file_id_b = data_b["file_id"]
+
+    # Kullanıcı B, Kullanıcı A'nın file_id'sini ALMAMALI; kendine ait ayrı bir kayıt almalıdır!
+    assert file_id_b != file_id_a, "Farklı kullanıcılar aynı içeriği yüklediğinde dosya ID'leri karışmamalıdır!"
+    assert data_b["is_duplicate"] is False
+
+    # 3. Kullanıcı A aynı dosyayı ikinci kez yüklerse, kendisine ait duplicate uyarısı almalıdır
+    res_a_dup = client.post(
+        "/api/v1/files/upload",
+        files={"file": ("shared_doc.txt", common_content, "text/plain")},
+        headers=headers_a
+    )
+    assert res_a_dup.status_code == 201
+    data_a_dup = res_a_dup.json()
+    assert data_a_dup["file_id"] == file_id_a
+    assert data_a_dup["is_duplicate"] is True
+
+
+
 

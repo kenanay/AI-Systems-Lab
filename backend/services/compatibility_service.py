@@ -87,36 +87,90 @@ class CompatibilityService:
                     checks["model_name"] = model_name
                     checks["model_version"] = m_meta.get("version")
                     tr_cfg = m_meta.get("training_config") or {}
-                    m_vocab = tr_cfg.get("vocab_size")
-                    m_tok_id = tr_cfg.get("tokenizer_id") or tr_cfg.get("tokenizer_name")
+                    tok_info = m_meta.get("tokenizer_info") or {}
+                    m_vocab = (
+                        tr_cfg.get("vocab_size")
+                        or tok_info.get("vocab_size")
+                        or (loaded.get("config") or {}).get("vocab_size")
+                    )
+                    m_tok_id = (
+                        tr_cfg.get("tokenizer_id")
+                        or tr_cfg.get("tokenizer_name")
+                        or tok_info.get("tokenizer_id")
+                    )
+
+                    # Model metadata'sında vocab_size veya tokenizer bilgisi eksikse checkpoint dosyasından oku
+                    if (not m_vocab or not m_tok_id) and loaded.get("checkpoint_path"):
+                        try:
+                            import torch
+                            cp_data = torch.load(loaded["checkpoint_path"], map_location="cpu", weights_only=False)
+                            if isinstance(cp_data, dict):
+                                cfg_obj = cp_data.get("config")
+                                if not m_vocab and isinstance(cfg_obj, dict):
+                                    m_vocab = cfg_obj.get("vocab_size")
+                                elif not m_vocab and hasattr(cfg_obj, "vocab_size"):
+                                    m_vocab = getattr(cfg_obj, "vocab_size")
+                                if not m_tok_id:
+                                    m_tok_id = cp_data.get("tokenizer_id") or cp_data.get("tokenizer_name")
+                        except Exception as e:
+                            logger.warning(f"Could not load checkpoint details for verification: {e}")
+
+                    # Eğer tokenizer_path varsa ve vocab_size hala yoksa diskten oku
+                    if not m_vocab and loaded.get("tokenizer_path"):
+                        t_path = Path(loaded["tokenizer_path"])
+                        v_file = t_path / "vocab.json" if t_path.is_dir() else t_path
+                        if v_file.exists():
+                            try:
+                                import json
+                                with open(v_file, "r", encoding="utf-8") as vf:
+                                    m_vocab = len(json.load(vf))
+                            except Exception:
+                                pass
+
                     checks["server_model_vocab_size"] = m_vocab
                     checks["server_model_tokenizer_id"] = m_tok_id
+
+                    # Zorunlu model metadata alanları kontrolü
+                    if not m_vocab or m_vocab <= 0:
+                        errors.append(f"Model metadata'sında zorunlu sözlük boyutu (vocab_size) eksik veya geçersiz: {m_vocab}")
+                    if not m_tok_id and not loaded.get("tokenizer_path"):
+                        errors.append("Model metadata'sında ilişkili tokenizer kimliği (tokenizer_id/path) bulunamadı.")
             except (ValueError, FileNotFoundError) as e:
                 errors.append(f"Model sunucu registry'sinde doğrulanamadı: {e}")
             except Exception as e:
                 logger.error(f"Error loading model from registry for verification: {e}")
                 errors.append(f"Model registry okuma hatası: {str(e)}")
 
+        # Tokenizer ID belirtilmemiş ancak modelin kayıtlı tokenizer_id'si varsa otomatik olarak onu doğrula
+        effective_tokenizer_id = tokenizer_id or m_tok_id
+
         # 2. Tokenizer Doğrulaması (Veritabanından ve Diskten)
         t_vocab: Optional[int] = None
         t_ds_ver: Optional[str] = None
 
-        if tokenizer_id:
+        if effective_tokenizer_id:
             tok_rec = self.db.query(TokenizerRecord).filter(
-                TokenizerRecord.tokenizer_id == tokenizer_id
+                TokenizerRecord.tokenizer_id == effective_tokenizer_id
             ).first()
 
             if not tok_rec:
-                errors.append(f"Tokenizer veritabanı kayıtlarında bulunamadı: {tokenizer_id}")
+                errors.append(f"Tokenizer veritabanı kayıtlarında bulunamadı: {effective_tokenizer_id}")
             else:
                 checks["tokenizer_verified"] = True
-                checks["tokenizer_id"] = tokenizer_id
+                checks["tokenizer_id"] = effective_tokenizer_id
                 t_vocab = tok_rec.vocab_size
                 t_ds_ver = getattr(tok_rec, "dataset_version", None) or (
                     tok_rec.source_dataset_ids[0] if getattr(tok_rec, "source_dataset_ids", None) else None
                 )
                 checks["server_tokenizer_vocab_size"] = t_vocab
                 checks["server_tokenizer_dataset_version"] = t_ds_ver
+
+                # Zorunlu tokenizer metadata alanları kontrolü
+                if not t_vocab or t_vocab <= 0:
+                    errors.append(f"Tokenizer kaydında zorunlu sözlük boyutu (vocab_size) eksik veya geçersiz: {t_vocab}")
+        elif model_name:
+            # Model var ama ne istekte ne de model metadata'sında tokenizer kimliği mevcut
+            errors.append("Model ile ilişkilendirilmiş bir tokenizer kimliği bulunamadı; uyumluluk doğrulanamaz.")
 
         # 3. Dataset Doğrulaması
         if dataset_id:
@@ -131,7 +185,7 @@ class CompatibilityService:
                 notes.append(f"Dataset kaydı veritabanında bulunamadı veya yerel dosya: {dataset_id}")
 
         # Eğer model veya tokenizer verilip sunucuda doğrulanamadıysa, sessiz geçme -> verification_failed!
-        if (model_name and not checks["model_verified"]) or (tokenizer_id and not checks["tokenizer_verified"]):
+        if (model_name and not checks["model_verified"]) or ((tokenizer_id or model_name) and not checks["tokenizer_verified"]):
             return CompatibilityResult(
                 compatible=False,
                 status="verification_failed",
@@ -144,21 +198,26 @@ class CompatibilityService:
         # 4. Model & Tokenizer Karşılıklı Uyumluluk Kontrolleri
         if checks["model_verified"] and checks["tokenizer_verified"]:
             # A. Tokenizer Kimliği Eşleşmesi
-            if m_tok_id and str(m_tok_id) != str(tokenizer_id):
+            if tokenizer_id and m_tok_id and str(m_tok_id) != str(tokenizer_id):
                 errors.append(
                     f"Kritik Tokenizer Uyuşmazlığı: Model '{m_tok_id}' tokenizer'ı ile eğitilmiş; seçili tokenizer '{tokenizer_id}'. Farklı sözlük eşlemeleri modelin bozuk veya anlamsız çıktı üretmesine yol açacaktır."
                 )
+            elif not m_tok_id and not (loaded and loaded.get("tokenizer_path")):
+                errors.append("Modelin beklediği tokenizer kimliği doğrulanamadı (model metadata eksik).")
+            elif not m_tok_id and loaded and loaded.get("tokenizer_path"):
+                notes.append(f"Model yerleşik tokenizer artefaktı içeriyor: {loaded.get('tokenizer_path')}")
 
-            # B. Sözlük Boyutu Sınır Aşımı (Index Overflow)
-            if m_vocab is not None and t_vocab is not None:
-                if m_vocab < t_vocab:
-                    errors.append(
-                        f"Kritik İndeks Taşması: Model sözlük boyutu ({m_vocab}), Tokenizer sözlük boyutundan ({t_vocab}) küçük! Model inference/training sırasında sınır dışı token ID'leri IndexError üretecektir."
-                    )
-                elif m_vocab > t_vocab:
-                    notes.append(
-                        f"Bilgi: Model sözlük boyutu ({m_vocab}), Tokenizer sözlük boyutundan ({t_vocab}) büyük. Fazladan embedding rezervi mevcuttur."
-                    )
+            # B. Zorunlu Sözlük Boyutu ve Kapasite Kontrolleri
+            if m_vocab is None or t_vocab is None or m_vocab <= 0 or t_vocab <= 0:
+                errors.append("Model veya tokenizer sözlük boyutu eksik; kapasite uyumluluğu doğrulanamadı.")
+            elif m_vocab < t_vocab:
+                errors.append(
+                    f"Kritik İndeks Taşması: Model sözlük boyutu ({m_vocab}), Tokenizer sözlük boyutundan ({t_vocab}) küçük! Model inference/training sırasında sınır dışı token ID'leri IndexError üretecektir."
+                )
+            elif m_vocab > t_vocab:
+                notes.append(
+                    f"Bilgi: Model sözlük boyutu ({m_vocab}), Tokenizer sözlük boyutundan ({t_vocab}) büyük. Fazladan embedding rezervi mevcuttur."
+                )
 
             # C. Dataset Sürüm Bilgilendirmesi
             active_ds_ver = dataset_version or checks.get("server_dataset_version")
@@ -169,7 +228,10 @@ class CompatibilityService:
 
         is_compatible = len(errors) == 0
         if not is_compatible:
-            status = "incompatible"
+            if (model_name and not checks["model_verified"]) or ((tokenizer_id or model_name) and not checks["tokenizer_verified"]) or any("eksik" in e.lower() for e in errors):
+                status = "verification_failed"
+            else:
+                status = "incompatible"
         elif len(warnings) > 0:
             status = "warning"
         else:

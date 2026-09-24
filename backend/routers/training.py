@@ -157,7 +157,10 @@ def start_training(
         )
     
     except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(422, str(exc)) from exc
+        msg = str(exc)
+        if any(keyword in msg.lower() for keyword in ["uyumsuz", "aş", "kapasite", "yetki", "erişim", "overflow", "mismatch", "not found"]):
+            raise HTTPException(400, msg) from exc
+        raise HTTPException(422, msg) from exc
 
     # Arka planda eğitimi başlat
     service.start_training(str(job.job_id))

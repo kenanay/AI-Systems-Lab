@@ -279,7 +279,47 @@ class ModelRegistry:
                         tokenizer_config = json.load(f)
                         tokenizer_info['vocab_size'] = tokenizer_config.get('vocab_size')
                         tokenizer_info['model_type'] = tokenizer_config.get('model_type')
-        
+
+                # Check vocab in tokenizer directory or file if not already set
+                if 'vocab_size' not in tokenizer_info and tok_path.is_dir():
+                    v_json = tok_path / "vocab.json"
+                    if v_json.exists():
+                        try:
+                            with open(v_json, 'r', encoding='utf-8') as f:
+                                tokenizer_info['vocab_size'] = len(json.load(f))
+                        except Exception:
+                            pass
+                    t_json = tok_path / "tokenizer.json"
+                    if 'vocab_size' not in tokenizer_info and t_json.exists():
+                        try:
+                            with open(t_json, 'r', encoding='utf-8') as f:
+                                tj = json.load(f)
+                                if 'model' in tj and 'vocab' in tj['model']:
+                                    tokenizer_info['vocab_size'] = len(tj['model']['vocab'])
+                        except Exception:
+                            pass
+
+        # Inspect checkpoint config if training_config is missing vocab_size
+        final_training_config = dict(training_config) if training_config else {}
+        if 'vocab_size' not in final_training_config:
+            try:
+                import torch
+                cp_data = torch.load(cp_path, map_location='cpu', weights_only=False)
+                if isinstance(cp_data, dict):
+                    cfg_data = cp_data.get('config')
+                    if isinstance(cfg_data, dict) and 'vocab_size' in cfg_data:
+                        final_training_config['vocab_size'] = cfg_data['vocab_size']
+                    elif hasattr(cfg_data, 'vocab_size'):
+                        final_training_config['vocab_size'] = getattr(cfg_data, 'vocab_size')
+                    if 'tokenizer_id' in cp_data and 'tokenizer_id' not in final_training_config:
+                        final_training_config['tokenizer_id'] = cp_data['tokenizer_id']
+                    if 'tokenizer_sha256' in cp_data and 'tokenizer_sha256' not in tokenizer_info:
+                        tokenizer_info['sha256'] = cp_data['tokenizer_sha256']
+            except Exception:
+                pass
+        if 'vocab_size' not in final_training_config and 'vocab_size' in tokenizer_info:
+            final_training_config['vocab_size'] = tokenizer_info['vocab_size']
+
         # Create metadata
         metadata = ModelMetadata(
             model_name=model_name,
@@ -288,7 +328,7 @@ class ModelRegistry:
             architecture=architecture,
             parameters=parameters or 0,
             metrics=metrics or {},
-            training_config=training_config or {},
+            training_config=final_training_config,
             tokenizer_info=tokenizer_info,
             tags=tags or [],
             environment=environment,

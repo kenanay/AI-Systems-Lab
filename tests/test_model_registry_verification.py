@@ -177,5 +177,32 @@ def test_artifact_compatibility_endpoint():
     assert data_missing["status"] == "verification_failed"
     assert any("doğrulanamadı" in w or "bulunamadı" in w for w in data_missing["warnings"])
 
+    # 6. Fail-closed: Model with missing vocab_size or missing tokenizer link returns verification_failed
+    with tempfile.NamedTemporaryFile(suffix=".pt") as tmp_chk2, tempfile.NamedTemporaryFile(suffix=".json") as tmp_tok2:
+        torch.save({"dummy": torch.tensor([1])}, tmp_chk2.name)
+        Path(tmp_tok2.name).write_text("{}")
+        try:
+            registry.register_model(
+                model_name="test-missing-meta-model",
+                version="1.0.0",
+                checkpoint_path=tmp_chk2.name,
+                tokenizer_path=tmp_tok2.name,
+                training_config={}  # Missing vocab_size and tokenizer_id!
+            )
+        except ValueError:
+            pass
+
+    res_missing_meta = client.post("/api/v1/models/validate-compatibility", json={
+        "model_name": "test-missing-meta-model",
+        "model_version": "1.0.0",
+        "tokenizer_id": "tok_verified_1"
+    }, headers=headers)
+    assert res_missing_meta.status_code == 200
+    data_missing_meta = res_missing_meta.json()
+    assert data_missing_meta["compatible"] is False
+    assert data_missing_meta["status"] == "verification_failed"
+    assert any("zorunlu sözlük boyutu" in w or "eksik" in w for w in data_missing_meta["warnings"])
+
+
 
 

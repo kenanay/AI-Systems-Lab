@@ -92,30 +92,48 @@ def main():
         "tests": 0, "passed": 0, "failures": 0, "skipped": 0, "suites_total": 0, "suites_passed": 0, "time": 0.0
     }
 
+    missing_reports = []
+    if not backend_xml or backend_stats["tests"] == 0:
+        missing_reports.append("Backend Pytest raporu (pytest-results.xml) eksik veya 0 test içeriyor.")
+    if not frontend_json or frontend_stats["tests"] == 0:
+        missing_reports.append("Frontend Jest raporu (jest-results.json) eksik veya 0 test içeriyor.")
+
     total_tests = backend_stats["tests"] + frontend_stats["tests"]
     total_passed = backend_stats["passed"] + frontend_stats["passed"]
     total_failed = backend_stats["failures"] + backend_stats["errors"] + frontend_stats["failures"]
     total_skipped = backend_stats["skipped"] + frontend_stats["skipped"]
     total_time = backend_stats["time"] + frontend_stats["time"]
 
-    status_icon = "✅" if total_failed == 0 else "❌"
-    status_text = "PASSED" if total_failed == 0 else "FAILED"
+    # Fail-closed: Rapor eksikse veya 0 test varsa ASLA başarılı sayma!
+    is_all_clear = (len(missing_reports) == 0) and (total_failed == 0) and (total_tests > 0)
+    status_icon = "✅" if is_all_clear else "❌"
+    status_text = "PASSED" if is_all_clear else "FAILED"
 
     report_lines = [
         f"# {status_icon} CI Quality Gate Summary: {status_text}",
         "",
         "| Component | Total Tests | Passed | Failed | Skipped | Duration | Status |",
         "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
-        f"| **Backend (Pytest)** | {backend_stats['tests']} | {backend_stats['passed']} | {backend_stats['failures'] + backend_stats['errors']} | {backend_stats['skipped']} | {backend_stats['time']:.2f}s | {'✅ Pass' if (backend_stats['failures'] + backend_stats['errors']) == 0 else '❌ Fail'} |",
-        f"| **Frontend (Jest)** | {frontend_stats['tests']} ({frontend_stats['suites_total']} suites) | {frontend_stats['passed']} | {frontend_stats['failures']} | {frontend_stats['skipped']} | {frontend_stats['time']:.2f}s | {'✅ Pass' if frontend_stats['failures'] == 0 else '❌ Fail'} |",
+        f"| **Backend (Pytest)** | {backend_stats['tests']} | {backend_stats['passed']} | {backend_stats['failures'] + backend_stats['errors']} | {backend_stats['skipped']} | {backend_stats['time']:.2f}s | {'✅ Pass' if (backend_xml and backend_stats['tests'] > 0 and (backend_stats['failures'] + backend_stats['errors']) == 0) else '❌ Fail'} |",
+        f"| **Frontend (Jest)** | {frontend_stats['tests']} ({frontend_stats['suites_total']} suites) | {frontend_stats['passed']} | {frontend_stats['failures']} | {frontend_stats['skipped']} | {frontend_stats['time']:.2f}s | {'✅ Pass' if (frontend_json and frontend_stats['tests'] > 0 and frontend_stats['failures'] == 0) else '❌ Fail'} |",
         f"| **Total / Overall** | **{total_tests}** | **{total_passed}** | **{total_failed}** | **{total_skipped}** | **{total_time:.2f}s** | **{status_icon} {status_text}** |",
         "",
+    ]
+
+    if missing_reports:
+        report_lines.extend([
+            "### ⚠️ Fail-Closed Uyarıları (Eksik Test Kanıtı)",
+            *[f"- ❌ {m}" for m in missing_reports],
+            "",
+        ])
+
+    report_lines.extend([
         "### Quality Gate Verification Details",
         "- **Backend**: Python 3.11 compileall syntax check, Pytest regression suite with RBAC, Model Registry, and Tokenizer integrity checks.",
         "- **Frontend**: TypeScript strict type-checking (`tsc --noEmit`), Jest unit & UI test suites, Next.js 14 production build bundle verification.",
         "- **End-to-End Pipeline**: Full Turkish GPT pipeline (real token ingestion, training, checkpoint resume, evaluation, registry, and inference).",
         "",
-    ]
+    ])
 
     report_content = "\n".join(report_lines)
 
@@ -128,7 +146,7 @@ def main():
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write(report_content + "\n")
 
-    if total_failed > 0:
+    if not is_all_clear:
         sys.exit(1)
 
 

@@ -116,43 +116,55 @@ async def upload_file(
     sha256 = sha256_hash.hexdigest()
     logger.info(f"SHA-256: {sha256}")
     
-    # 5. Duplicate kontrolü
-    existing_file = db.query(FileRecord).filter(FileRecord.sha256 == sha256).first()
-    if existing_file:
-        logger.warning(f"Duplicate dosya tespit edildi: {existing_file.file_id}")
+    # 5. Duplicate kontrolü (Kullanıcı bazlı izolasyon)
+    # Aynı kullanıcı daha önce aynı dosyayı yüklemişse kendi kaydını döndür
+    current_user_id = str(current_user.user_id) if current_user and current_user.user_id else None
+    user_query = db.query(FileRecord).filter(FileRecord.sha256 == sha256)
+    if current_user_id:
+        user_existing = user_query.filter(FileRecord.owner_id == current_user_id).first()
+    else:
+        user_existing = user_query.filter(FileRecord.owner_id.is_(None)).first()
+
+    if user_existing:
+        logger.warning(f"Duplicate dosya tespit edildi (kullanıcıya ait): {user_existing.file_id}")
         return FileUploadResponse(
-            file_id=existing_file.file_id,
-            filename=existing_file.original_name,
-            size_bytes=existing_file.size_bytes,
-            mime_type=existing_file.mime_type,
-            sha256=existing_file.sha256,
+            file_id=user_existing.file_id,
+            filename=user_existing.original_name,
+            size_bytes=user_existing.size_bytes,
+            mime_type=user_existing.mime_type,
+            sha256=user_existing.sha256,
             is_duplicate=True,
-            message="Bu dosya daha önce yüklenmiş (duplicate)."
+            message="Bu dosya daha önce sizin tarafınızdan yüklenmiş (duplicate)."
         )
     
     # 6. File ID üret
     file_id = generate_file_id()
     
-    # 7. Fiziksel kaydetme (chunks'tan BytesIO oluştur)
-    from io import BytesIO
-    file_stream = BytesIO(file_content)
-    relative_path, calculated_sha256 = storage_manager.save_file(
-        file_stream,
-        filename,
-        file_id
-    )
-    
-    # SHA-256 kontrolü (güvenlik)
-    if sha256 != calculated_sha256:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="SHA-256 uyuşmazlığı tespit edildi"
+    # 7. Fiziksel içerik kontrolü ve kaydetme (Content Store deduplication)
+    # Başka bir kullanıcı veya demo veri aynı fiziksel içeriğe sahipse diskte tekrar oluşturma, fiziksel yolu paylaş
+    content_existing = db.query(FileRecord).filter(FileRecord.sha256 == sha256).first()
+    if content_existing and storage_manager.file_exists(content_existing.relative_path):
+        relative_path = content_existing.relative_path
+        logger.info(f"Fiziksel içerik havuzundan mevcut dosya yolu yeniden kullanıldı: {relative_path}")
+    else:
+        from io import BytesIO
+        file_stream = BytesIO(file_content)
+        relative_path, calculated_sha256 = storage_manager.save_file(
+            file_stream,
+            filename,
+            file_id
         )
+        # SHA-256 kontrolü (güvenlik)
+        if sha256 != calculated_sha256:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="SHA-256 uyuşmazlığı tespit edildi"
+            )
     
-    # 8. Database kaydı
+    # 8. Kullanıcıya özel bağımsız FileRecord kaydı
     file_record = FileRecord(
         file_id=file_id,
-        owner_id=str(current_user.user_id) if current_user and current_user.user_id else None,
+        owner_id=current_user_id,
         original_name=filename,
         relative_path=str(relative_path),
         mime_type=mime_type,
@@ -169,7 +181,7 @@ async def upload_file(
     db.commit()
     db.refresh(file_record)
     
-    logger.info(f"Dosya başarıyla kaydedildi: {file_id}")
+    logger.info(f"Dosya kullanıcı için başarıyla kaydedildi: {file_id} (owner: {current_user_id})")
     
     return FileUploadResponse(
         file_id=file_id,
