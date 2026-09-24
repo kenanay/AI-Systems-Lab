@@ -71,7 +71,11 @@ def get_db() -> Generator[Session, None, None]:
 
 def seed_default_users() -> None:
     """
-    Eğer hiç kullanıcı yoksa varsayılan admin ve researcher hesaplarını oluşturur.
+    Eksik varsayılan admin ve researcher hesaplarını oluşturur.
+
+    Mevcut kullanıcıların parolaları veya rolleri değiştirilmez. Bu davranış,
+    yerel veritabanında test kullanıcıları varken demo hesaplarından yalnızca
+    birinin eksik olması durumunda da varsayılan login akışını çalışır tutar.
     """
     if not settings.seed_demo_users:
         return
@@ -80,29 +84,37 @@ def seed_default_users() -> None:
     
     db = SessionLocal()
     try:
-        user_count = db.query(UserRecord).count()
-        if user_count == 0:
-            logger.info("🌱 Varsayılan kullanıcılar veritabanına ekleniyor...")
-            admin_user = UserRecord(
+        existing_usernames = {
+            username
+            for (username,) in db.query(UserRecord.username).filter(
+                UserRecord.username.in_(["admin", "researcher"])
+            ).all()
+        }
+        users_to_create = []
+        if "admin" not in existing_usernames:
+            users_to_create.append(UserRecord(
                 username="admin",
                 email="admin@ailab.local",
                 hashed_password=hash_password(settings.default_admin_password),
                 role="admin",
                 full_name="System Administrator",
                 is_active=True
-            )
-            researcher_user = UserRecord(
+            ))
+        if "researcher" not in existing_usernames:
+            users_to_create.append(UserRecord(
                 username="researcher",
                 email="researcher@ailab.local",
                 hashed_password=hash_password(settings.default_researcher_password),
                 role="researcher",
                 full_name="AI Researcher",
                 is_active=True
-            )
-            db.add(admin_user)
-            db.add(researcher_user)
+            ))
+
+        if users_to_create:
+            logger.info("🌱 Varsayılan kullanıcılar veritabanına ekleniyor...")
+            db.add_all(users_to_create)
             db.commit()
-            logger.info("✅ Varsayılan admin ve researcher kullanıcıları oluşturuldu.")
+            logger.info("✅ Eksik varsayılan kullanıcılar oluşturuldu: %s", len(users_to_create))
     except Exception as e:
         logger.error(f"Kullanıcı seed işlemi sırasında hata oluştu: {e}")
         db.rollback()

@@ -112,7 +112,14 @@ class Settings(BaseSettings):
     # CORS
     enable_cors: bool = Field(default=True, alias="ENABLE_CORS")
     allowed_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8000"],
+        default=[
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ],
         alias="ALLOWED_ORIGINS"
     )
     

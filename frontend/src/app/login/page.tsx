@@ -20,6 +20,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const getRedirectTarget = () => {
+    if (typeof window === 'undefined') return '/profile';
+    const next = new URLSearchParams(window.location.search).get('next');
+    return next && next.startsWith('/') && !next.startsWith('//') ? next : '/profile';
+  };
+
+  React.useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get('reason');
+    if (reason === 'session-expired' || reason === 'unauthorized') {
+      setErrorMsg('Bu sayfayı kullanmak için giriş yapmanız gerekiyor.');
+    }
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usernameOrEmail.trim() || !password) {
@@ -34,7 +47,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result.success) {
-      router.push('/profile');
+      router.push(getRedirectTarget());
     } else {
       setErrorMsg(result.error || 'Giriş yapılamadı.');
     }
@@ -55,7 +68,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result.success) {
-      router.push('/profile');
+      router.push(getRedirectTarget());
     } else {
       setErrorMsg(result.error || 'Demo girişi başarısız oldu.');
     }

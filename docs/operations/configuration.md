@@ -53,7 +53,8 @@ doluysa compose otomatik olarak bir sonraki porta geçmez; port mapping'i kendin
 | `MAX_UPLOAD_SIZE` | 100 MB | Upload üst sınırı |
 | `DATA_ROOT` | `./datasets` | Dataset kökü |
 | `LOG_FILE` | `./logs/app.log` | Backend logu |
-| `ALLOWED_ORIGINS` | localhost 3000/8000 | JSON liste olarak parse edilir |
+| `ALLOWED_ORIGINS` | localhost/127.0.0.1 3000/3001 | JSON liste olarak parse edilir |
+| `SEED_DEMO_USERS` | `true` (local launcher) | Boş geliştirme veritabanına `admin/admin` ve `researcher/researcher123` hesaplarını ekler; production'da `false` olmalıdır |
 | `RAG_EMBEDDER_TYPE` | `local` | RAG embedding backend'i |
 
 Frontend için `NEXT_PUBLIC_API_URL` browser'ın backend'e erişeceği URL,

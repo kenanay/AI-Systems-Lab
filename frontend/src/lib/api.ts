@@ -18,8 +18,26 @@ import type {
   User,
 } from '@/types';
 
-// API base URL
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// API base URL. In local development, keep the API cookie host aligned with
+// the host used to open the frontend (localhost vs 127.0.0.1).
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+function resolveApiBaseUrl() {
+  if (typeof window === 'undefined') return configuredApiUrl;
+
+  try {
+    const apiUrl = new URL(configuredApiUrl);
+    const localHosts = new Set(['localhost', '127.0.0.1']);
+    if (localHosts.has(window.location.hostname) && localHosts.has(apiUrl.hostname)) {
+      apiUrl.hostname = window.location.hostname;
+    }
+    return apiUrl.origin;
+  } catch {
+    return configuredApiUrl;
+  }
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 axios.defaults.withCredentials = true;
 
 // Axios instance
@@ -33,6 +51,16 @@ const apiClient: AxiosInstance = axios.create({
 });
 
 let refreshPromise: Promise<unknown> | null = null;
+
+function redirectToLogin(reason: 'session-expired' | 'unauthorized' = 'session-expired') {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname === '/login' || window.location.pathname === '/register') return;
+
+  const current = `${window.location.pathname}${window.location.search}`;
+  const next = encodeURIComponent(current);
+  window.location.assign(`/login?next=${next}&reason=${reason}`);
+}
+
 function refreshOnUnauthorized(client: typeof axios | AxiosInstance) {
   client.interceptors.response.use(response => response, async error => {
     const config = error.config;
@@ -40,9 +68,21 @@ function refreshOnUnauthorized(client: typeof axios | AxiosInstance) {
       config._retried = true;
       refreshPromise ??= axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {}, { withCredentials: true })
         .finally(() => { refreshPromise = null; });
-      await refreshPromise;
-      return client.request(config);
+      try {
+        await refreshPromise;
+        return client.request(config);
+      } catch (refreshError) {
+        console.warn('[Auth] Oturum yenilenemedi; login sayfasına yönlendiriliyor.', refreshError);
+        redirectToLogin();
+        return Promise.reject(error);
+      }
     }
+
+    if (error.response?.status === 401 && !config?.url?.includes('/auth/')) {
+      console.warn('[Auth] Yetkisiz API isteği:', config?.url);
+      redirectToLogin('unauthorized');
+    }
+
     return Promise.reject(error);
   });
 }
@@ -2658,4 +2698,3 @@ export const api = {
 };
 
 export default api;
-

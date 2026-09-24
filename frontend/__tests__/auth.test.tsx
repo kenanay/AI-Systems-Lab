@@ -126,6 +126,11 @@ describe('Auth & Security Frontend Suite', () => {
       expect(screen.getByTestId('username')).toHaveTextContent('admin');
       expect(screen.getByTestId('role')).toHaveTextContent('admin');
     });
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/login'),
+      { username_or_email: 'admin', password: 'admin' },
+      { withCredentials: true },
+    );
 
     // Test logout
     fireEvent.click(screen.getByTestId('test-logout'));
@@ -163,4 +168,3 @@ describe('Auth & Security Frontend Suite', () => {
     });
   });
 });
-

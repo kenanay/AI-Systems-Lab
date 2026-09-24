@@ -215,6 +215,7 @@ start_app() {
                 BACKEND_PORT="${backend_port}" \
                 BACKEND_RELOAD=true \
                 BACKEND_WORKERS=1 \
+                SEED_DEMO_USERS="${SEED_DEMO_USERS:-true}" \
                 ALLOWED_ORIGINS="${allowed_origins}" \
                 "${PYTHON_BIN}" -m uvicorn backend.main:app --host "${HOST}" --port "${backend_port}" --reload
         ) > "${backend_log}" 2>&1 < /dev/null &
@@ -236,6 +237,7 @@ start_app() {
                 BACKEND_PORT="${backend_port}" \
                 BACKEND_RELOAD=true \
                 BACKEND_WORKERS=1 \
+                SEED_DEMO_USERS="${SEED_DEMO_USERS:-true}" \
                 ALLOWED_ORIGINS="${allowed_origins}" \
                 "${PYTHON_BIN}" -m uvicorn backend.main:app --host "${HOST}" --port "${backend_port}" --reload
         ) &

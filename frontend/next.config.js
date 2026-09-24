@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
@@ -8,7 +10,6 @@ const nextConfig = {
   
   // API rewrite (backend proxy)
   async rewrites() {
-    const apiUrl = process.env.API_URL || 'http://localhost:8000';
     return [
       {
         source: '/api/:path*',
@@ -19,7 +20,9 @@ const nextConfig = {
   
   // Environment variables
   env: {
-    API_URL: process.env.API_URL || 'http://localhost:8000',
+    // Keep the browser client, server rewrite, and launcher-selected port aligned.
+    API_URL: apiUrl,
+    NEXT_PUBLIC_API_URL: apiUrl,
   },
 };
 

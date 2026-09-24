@@ -7,6 +7,7 @@ import { Inter } from 'next/font/google';
 import '@/styles/globals.css';
 import { Providers } from './providers';
 import { Navbar } from '@/components/Navbar';
+import { AuthGuard } from '@/components/AuthGuard';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -29,7 +30,9 @@ export default function RootLayout({
         <Providers>
           <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
             <Navbar />
-            <main className="flex-1">{children}</main>
+            <main className="flex-1">
+              <AuthGuard>{children}</AuthGuard>
+            </main>
           </div>
         </Providers>
       </body>

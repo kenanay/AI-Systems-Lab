@@ -251,6 +251,7 @@ function Start-Application {
         BACKEND_PORT = $backendPort
         BACKEND_RELOAD = 'true'
         BACKEND_WORKERS = '1'
+        SEED_DEMO_USERS = if ($env:SEED_DEMO_USERS) { $env:SEED_DEMO_USERS } else { 'true' }
         ALLOWED_ORIGINS = $origins
     }
     $frontendEnvironment = @{

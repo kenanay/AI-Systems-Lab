@@ -66,10 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Oturum açma
   const login = useCallback(async (usernameOrEmail: string, password: string) => {
     try {
-      const response = await axios.post<LoginResponse>(`${API_BASE_URL}/api/v1/auth/login`, {
-        username_or_email: usernameOrEmail,
-        password: password,
-      });
+      const response = await axios.post<LoginResponse>(
+        `${API_BASE_URL}/api/v1/auth/login`,
+        {
+          username_or_email: usernameOrEmail,
+          password: password,
+        },
+        { withCredentials: true },
+      );
 
       const data = response.data;
       queryClient.clear();
