@@ -403,12 +403,33 @@ class TestEndToEndTurkishGPT:
     
     def test_07_training_and_checkpoint(self, db_session: Session, test_workspace: Path):
         """
-        Adım 7-8: Pretraining başlat, checkpoint kaydet ve doğrula
+        Adım 7-8: Pretraining başlat, checkpoint kaydet ve resume ile eğitimi sürdür
+        
+        Kontroller:
+        - Gerçek derlenmiş Parquet veri kümesinden tokenlar okundu mu
+        - Model forward & backward adımı gerçek veriyle tamamlandı mı
+        - Checkpoint model ve optimizer durumlarıyla kaydedildi mi
+        - Checkpoint'ten sıfırdan model ve optimizer durumları yüklenip (resume) 2. epoch eğitildi mi
         """
         import torch
-        print("\n=== ADIM 7-8: Training ve Checkpoint ===")
+        import pandas as pd
+        print("\n=== ADIM 7-8: Training ve Checkpoint Resume ===")
         
-        # 1. Mini-GPT modelini yapılandır
+        # 1. Gerçek derlenmiş veri kümesinden token_ids'leri oku
+        dataset_record = db_session.query(DatasetVersion).filter_by(
+            dataset_id=TestEndToEndTurkishGPT.dataset_id
+        ).first()
+        assert dataset_record is not None, "Dataset record bulunamadı"
+        
+        df = pd.read_parquet(dataset_record.storage_path)
+        real_tokens = []
+        for token_list in df["token_ids"]:
+            real_tokens.extend(token_list)
+        
+        assert len(real_tokens) >= 32, f"Veri kümesinde yeterli token bulunamadı: {len(real_tokens)}"
+        print(f"✓ Derlenmiş veri kümesinden {len(real_tokens)} gerçek token okundu")
+        
+        # 2. Mini-GPT modelini yapılandır
         config = GPTConfig(
             vocab_size=VOCAB_SIZE,
             max_seq_len=MAX_SEQ_LEN,
@@ -421,13 +442,16 @@ class TestEndToEndTurkishGPT:
         model.train()
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
-        # 2. Gerçek forward & backward adımı (micro-training)
+        # 3. Gerçek veriyle 1. Epoch forward & backward adımı
         batch_size = 2
         seq_len = 16
-        dummy_tokens = torch.randint(0, VOCAB_SIZE, (batch_size, seq_len))
+        real_batch = torch.tensor([
+            real_tokens[:seq_len],
+            real_tokens[seq_len:2*seq_len]
+        ], dtype=torch.long)
         
-        logits, _ = model(dummy_tokens[:, :-1])
-        targets = dummy_tokens[:, 1:]
+        logits, _ = model(real_batch[:, :-1])
+        targets = real_batch[:, 1:]
         loss = torch.nn.functional.cross_entropy(
             logits.reshape(-1, logits.size(-1)),
             targets.reshape(-1)
@@ -435,21 +459,63 @@ class TestEndToEndTurkishGPT:
         assert loss is not None and not torch.isnan(loss)
         loss.backward()
         optimizer.step()
+        epoch1_loss = float(loss.item())
 
-        # 3. Gerçek checkpoint kaydet
+        # 4. Checkpoint'i model ve optimizer state_dict ile kaydet
         chk_dir = test_workspace / "checkpoints"
         chk_dir.mkdir(exist_ok=True, parents=True)
-        chk_path = chk_dir / "checkpoint_epoch_1.pt"
+        chk_path_1 = chk_dir / "checkpoint_epoch_1.pt"
         torch.save({
             "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
             "config": config.__dict__,
             "epoch": 1,
-            "loss": float(loss.item())
-        }, chk_path)
+            "loss": epoch1_loss
+        }, chk_path_1)
+        print(f"✓ 1. Epoch tamamlandı (Loss: {epoch1_loss:.4f}), Checkpoint kaydedildi: {chk_path_1.name}")
 
-        TestEndToEndTurkishGPT.checkpoint_path = chk_path
+        # 5. CHECKPOINT RESUME: Yeni model & optimizer oluşturup checkpoint durumunu yükle
+        resume_checkpoint = torch.load(chk_path_1, weights_only=False)
+        assert "model_state_dict" in resume_checkpoint
+        assert "optimizer_state_dict" in resume_checkpoint
+        assert resume_checkpoint["epoch"] == 1
+
+        resumed_model = GPTModel(config)
+        resumed_model.load_state_dict(resume_checkpoint["model_state_dict"])
+        resumed_model.train()
+        resumed_optimizer = torch.optim.AdamW(resumed_model.parameters(), lr=1e-3)
+        resumed_optimizer.load_state_dict(resume_checkpoint["optimizer_state_dict"])
+
+        # 6. Kaldığı yerden gerçek verinin sonraki dilimiyle 2. Epoch eğitimi
+        resumed_optimizer.zero_grad()
+        resume_batch = torch.tensor([
+            real_tokens[seq_len:2*seq_len],
+            real_tokens[:seq_len]
+        ], dtype=torch.long)
+        logits_resume, _ = resumed_model(resume_batch[:, :-1])
+        targets_resume = resume_batch[:, 1:]
+        loss_resume = torch.nn.functional.cross_entropy(
+            logits_resume.reshape(-1, logits_resume.size(-1)),
+            targets_resume.reshape(-1)
+        )
+        assert loss_resume is not None and not torch.isnan(loss_resume)
+        loss_resume.backward()
+        resumed_optimizer.step()
+        epoch2_loss = float(loss_resume.item())
+
+        # 7. Resumed model durumunu kaydet (2. Epoch checkpoint)
+        chk_path_2 = chk_dir / "checkpoint_epoch_2.pt"
+        torch.save({
+            "model_state_dict": resumed_model.state_dict(),
+            "optimizer_state_dict": resumed_optimizer.state_dict(),
+            "config": config.__dict__,
+            "epoch": 2,
+            "loss": epoch2_loss
+        }, chk_path_2)
+
+        TestEndToEndTurkishGPT.checkpoint_path = chk_path_2
         
-        # 4. Training job kaydını DB'ye ekle
+        # 8. Training job kaydını DB'ye ekle
         job = TrainingJob(
             job_id=f"TEST-JOB-{int(time.time())}",
             job_name="turkish-mini-gpt-test-training",
@@ -458,14 +524,15 @@ class TestEndToEndTurkishGPT:
             dataset_id=TestEndToEndTurkishGPT.dataset_id,
             tokenizer_id=TestEndToEndTurkishGPT.tokenizer_id,
             config={
-                "epochs": 1,
+                "epochs": 2,
                 "batch_size": batch_size,
                 "lr": 1e-3,
                 "d_model": D_MODEL,
                 "n_layers": N_LAYERS,
                 "n_heads": N_HEADS,
                 "max_seq_len": MAX_SEQ_LEN,
-                "loss": float(loss.item())
+                "loss": epoch2_loss,
+                "resumed_from": str(chk_path_1)
             },
             status="COMPLETED",
             output_dir=str(chk_dir)
@@ -474,22 +541,22 @@ class TestEndToEndTurkishGPT:
         db_session.commit()
         TestEndToEndTurkishGPT.job_id = str(job.job_id)
 
-        print(f"✓ Eğitim adımı tamamlandı, Loss: {loss.item():.4f}")
-        print(f"✓ Checkpoint kaydedildi: {chk_path.name}")
+        print(f"✓ Checkpoint resume başarılı! 2. Epoch tamamlandı (Loss: {epoch2_loss:.4f})")
+        print(f"✓ Son Checkpoint: {chk_path_2.name}")
 
-    def test_08_evaluation_perplexity(self):
+    def test_08_evaluation_perplexity(self, db_session: Session):
         """
-        Adım 9: Test kümesinde perplexity ve cross-entropy hesapla
+        Adım 9: Gerçek derlenmiş veri üzerinde perplexity ve cross-entropy hesapla
         """
         import torch
         import math
+        import pandas as pd
         print("\n=== ADIM 9: Evaluation - Perplexity ===")
         assert TestEndToEndTurkishGPT.checkpoint_path is not None
         assert TestEndToEndTurkishGPT.checkpoint_path.exists()
 
         checkpoint = torch.load(TestEndToEndTurkishGPT.checkpoint_path, weights_only=False)
         cfg_dict = checkpoint["config"]
-        # GPTConfig oluştur
         config = GPTConfig(
             vocab_size=cfg_dict["vocab_size"],
             max_seq_len=cfg_dict["max_seq_len"],
@@ -502,10 +569,24 @@ class TestEndToEndTurkishGPT:
         eval_model.load_state_dict(checkpoint["model_state_dict"])
         eval_model.eval()
 
-        test_inputs = torch.randint(0, VOCAB_SIZE, (4, 16))
+        # Doğrulama için gerçek tokenları kullan
+        dataset_record = db_session.query(DatasetVersion).filter_by(
+            dataset_id=TestEndToEndTurkishGPT.dataset_id
+        ).first()
+        df = pd.read_parquet(dataset_record.storage_path)
+        real_tokens = []
+        for token_list in df["token_ids"]:
+            real_tokens.extend(token_list)
+
+        seq_len = 16
+        eval_batch = torch.tensor([
+            real_tokens[:seq_len],
+            real_tokens[seq_len:2*seq_len]
+        ], dtype=torch.long)
+
         with torch.no_grad():
-            logits, _ = eval_model(test_inputs[:, :-1])
-            targets = test_inputs[:, 1:]
+            logits, _ = eval_model(eval_batch[:, :-1])
+            targets = eval_batch[:, 1:]
             val_loss = torch.nn.functional.cross_entropy(
                 logits.reshape(-1, logits.size(-1)),
                 targets.reshape(-1)
@@ -519,7 +600,7 @@ class TestEndToEndTurkishGPT:
 
     def test_09_model_registry(self, test_workspace: Path):
         """
-        Adım 10: Modeli registry'ye kaydet ve SHA256 bütünlüğünü doğrula
+        Adım 10: Modeli ve gerçek tokenizer dosyasını registry'ye kaydet ve SHA256 bütünlüğünü doğrula
         """
         print("\n=== ADIM 10: Model Registry ===")
         assert TestEndToEndTurkishGPT.checkpoint_path is not None
@@ -527,8 +608,8 @@ class TestEndToEndTurkishGPT:
         registry_dir = test_workspace / "models_registry"
         registry = ModelRegistry(registry_dir=registry_dir)
 
-        tok_file = test_workspace / "tokenizer.json"
-        tok_file.write_text(json.dumps({"vocab_size": VOCAB_SIZE, "name": TEST_TOKENIZER_NAME}))
+        # Adım 4'te eğitilmiş gerçek BPE tokenizer dosyasını kullan
+        tok_file = test_workspace / "tokenizers" / TEST_TOKENIZER_NAME
 
         metadata = registry.register_model(
             model_name=TEST_MODEL_NAME,
@@ -558,7 +639,7 @@ class TestEndToEndTurkishGPT:
 
     def test_10_inference_playground(self, test_workspace: Path):
         """
-        Adım 11: Kayıtlı modelden gerçek autoregressive token üretimi
+        Adım 11: Gerçek eğitilmiş BPE tokenizer ile prompt encode, autoregressive generation ve decode döngüsü
         """
         import torch
         print("\n=== ADIM 11: Inference - Metin Üretimi ===")
@@ -580,8 +661,16 @@ class TestEndToEndTurkishGPT:
         gen_model.load_state_dict(loaded["state_dict"])
         gen_model.eval()
 
-        # 3 tokenlik prompt ver
-        prompt_ids = torch.tensor([[10, 20, 30]])
+        # Gerçek BPE tokenizer'ı yükle
+        tokenizer_path = test_workspace / "tokenizers" / TEST_TOKENIZER_NAME
+        tokenizer = BPETokenizer.load(str(tokenizer_path))
+
+        # Gerçek Türkçe metin ile prompt oluştur ve tokenize et
+        prompt_text = "Yapay zeka"
+        prompt_tokens = tokenizer.encode(prompt_text)
+        assert len(prompt_tokens) > 0, "Prompt tokenization failed"
+        prompt_ids = torch.tensor([prompt_tokens], dtype=torch.long)
+
         output_tokens = gen_model.generate(
             prompt_ids,
             max_new_tokens=8,
@@ -589,9 +678,12 @@ class TestEndToEndTurkishGPT:
             top_k=10
         )
 
-        assert output_tokens.shape == (1, 11)
+        generated_ids = output_tokens[0].tolist()
+        decoded_text = tokenizer.decode(generated_ids)
+        assert len(generated_ids) == len(prompt_tokens) + 8
         assert (output_tokens < VOCAB_SIZE).all()
-        print(f"✓ Inference üretimi tamamlandı: {output_tokens.tolist()}")
+        print(f"✓ Inference prompt: '{prompt_text}' ({prompt_tokens})")
+        print(f"✓ Inference üretimi tamamlandı: '{decoded_text}' ({generated_ids})")
 
     def test_11_experiment_report(self, db_session: Session):
         """

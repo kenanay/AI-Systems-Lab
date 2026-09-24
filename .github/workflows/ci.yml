@@ -42,7 +42,15 @@ jobs:
           MKL_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
         run: |
-          pytest tests/ -m "not slow" -v --tb=short
+          pytest tests/ -m "not slow" -v --tb=short --junitxml=pytest-results.xml
+
+      - name: Upload Backend Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: pytest-results.xml
+          retention-days: 7
 
   frontend-ci:
     name: Frontend CI (Node 20, Jest & Next.js Build)
@@ -69,7 +77,15 @@ jobs:
         run: npm run type-check
 
       - name: Run Jest Component & Unit Tests
-        run: npm test -- --ci
+        run: npm test -- --ci --json --outputFile=jest-results.json
+
+      - name: Upload Frontend Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: frontend/jest-results.json
+          retention-days: 7
 
       - name: Next.js 14 Production Build Verification
         env:
@@ -81,10 +97,19 @@ jobs:
     needs: [backend-ci, frontend-ci]
     runs-on: ubuntu-latest
     steps:
-      - name: Quality Gate Verification Summary
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download Test Report Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Parse & Publish Dynamic Quality Gate Summary
         run: |
-          echo "=========================================================="
-          echo "✅ CI Quality Gate: All quality gates passed successfully!"
-          echo " - Backend CI: Python 3.11 compileall + Pytest suite (PASSED)"
-          echo " - Frontend CI: TypeScript type-check + Jest suite + Next.js build (PASSED)"
-          echo "=========================================================="
+          python scripts/generate_ci_report.py

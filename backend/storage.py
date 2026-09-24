@@ -161,14 +161,22 @@ class StorageManager:
     def get_file_path(self, relative_path: str) -> Path:
         """
         Relative path'ten absolute path oluştur.
+        Path traversal girişimlerini engeller.
         
         Args:
             relative_path: Dataset root'a göre relative path
             
         Returns:
             Absolute file path
+            
+        Raises:
+            PermissionError: Path traversal tespit edilirse
         """
-        return settings.data_root / relative_path
+        data_root = settings.data_root.resolve()
+        target = (data_root / relative_path).resolve()
+        if not target.is_relative_to(data_root):
+            raise PermissionError("Path traversal detected outside data directory")
+        return target
     
     def delete_file(self, relative_path: str) -> bool:
         """

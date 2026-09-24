@@ -76,72 +76,53 @@ def validate_artifact_compatibility(
 ) -> ArtifactCompatibilityCheckResponse:
     """
     Model, Tokenizer ve Dataset artefaktlarının karşılıklı uyumluluğunu doğrular.
-    - Model vocab_size vs Tokenizer vocab_size (indeks taşması kontrolü)
-    - Tokenizer kimliği / mimari eşleşmesi
-    - Dataset versiyon takibi
+    - Model ve Tokenizer kayıtları doğrudan sunucu registry ve veritabanından okunur.
+    - Bulunamayan veya doğrulanamayan kayıtlar 'verification_failed' olarak döner.
+    - Tokenizer uyuşmazlığı veya indeks taşması durumunda compatible=False döner.
     """
-    warnings: List[str] = []
-    notes: List[str] = []
-    checks: Dict[str, Any] = {}
+    from backend.services.compatibility_service import CompatibilityService
 
-    m_vocab = req.model_vocab_size
-    m_tok_id = req.model_tokenizer_id
+    service = CompatibilityService(db)
 
-    # Eğer model_name verildiyse registry'den metadata oku
-    if req.model_name:
-        try:
-            registry = ModelRegistry(registry_dir="models")
-            loaded = registry.load_model(req.model_name, version=req.model_version)
-            meta = loaded.get("metadata")
-            if meta:
-                tr_cfg = meta.training_config or {}
-                if m_vocab is None:
-                    m_vocab = tr_cfg.get("vocab_size")
-                if m_tok_id is None:
-                    m_tok_id = tr_cfg.get("tokenizer_id") or tr_cfg.get("tokenizer_name")
-        except Exception:
-            pass
-
-    t_vocab = req.tokenizer_vocab_size
-    t_ds_ver = req.tokenizer_dataset_version
-
-    # Eğer tokenizer_id verildiyse DB'den TokenizerRecord kontrol et
-    if req.tokenizer_id:
-        from backend.models import TokenizerRecord
-        tok_rec = db.query(TokenizerRecord).filter(TokenizerRecord.tokenizer_id == req.tokenizer_id).first()
-        if tok_rec:
-            if t_vocab is None:
-                t_vocab = tok_rec.vocab_size
-            if t_ds_ver is None:
-                t_ds_ver = tok_rec.dataset_version
-
-    # 1. Sözlük boyutu kontrolü
-    checks["model_vocab_size"] = m_vocab
-    checks["tokenizer_vocab_size"] = t_vocab
-    if m_vocab is not None and t_vocab is not None:
-        if m_vocab < t_vocab:
-            warnings.append(
-                f"Kritik İndeks Taşması Riski: Model sözlük boyutu ({m_vocab}), Tokenizer sözlük boyutundan ({t_vocab}) küçük! Model çıktılarında sınır aşımı (IndexError) meydana gelecektir."
-            )
-        elif m_vocab > t_vocab:
-            notes.append(
-                f"Bilgi: Model sözlük kapasitesi ({m_vocab}), Tokenizer sözlüğünden ({t_vocab}) büyük. Ekstra embedding kapasitesi mevcut."
-            )
-
-    # 2. Tokenizer eşleşmesi
-    checks["model_tokenizer_id"] = m_tok_id
-    checks["tokenizer_id"] = req.tokenizer_id
-    if m_tok_id and req.tokenizer_id and str(m_tok_id) != str(req.tokenizer_id):
-        warnings.append(
-            f"Tokenizer Uyuşmazlığı: Model '{m_tok_id}' tokenizer'ı ile eğitilmiş; seçili tokenizer '{req.tokenizer_id}'. Token-ID haritaları farklı olabilir."
+    # 1. İsimlendirilmiş artefaktlar sağlandıysa yetkili sunucu doğrulaması yap
+    if req.model_name or req.tokenizer_id:
+        res = service.verify(
+            model_name=req.model_name,
+            model_version=req.model_version,
+            tokenizer_id=req.tokenizer_id,
+            dataset_version=req.dataset_version,
+        )
+        return ArtifactCompatibilityCheckResponse(
+            compatible=res.compatible,
+            status=res.status,
+            warnings=res.warnings + res.errors,
+            notes=res.notes,
+            checks=res.checks,
         )
 
-    # 3. Dataset versiyonu
-    checks["dataset_version"] = req.dataset_version
-    checks["tokenizer_dataset_version"] = t_ds_ver
-    if req.dataset_version and t_ds_ver and req.dataset_version != t_ds_ver:
-        notes.append(
-            f"Bilgi: Tokenizer derleme dataset versiyonu ({t_ds_ver}) ile mevcut dataset versiyonu ({req.dataset_version}) farklılık gösteriyor."
+    # 2. Yalnızca simüle edilmiş ham sözlük boyutları verildiyse (Lab simülatörü senaryoları)
+    warnings: List[str] = []
+    notes: List[str] = []
+    checks: Dict[str, Any] = {
+        "model_vocab_size": req.model_vocab_size,
+        "tokenizer_vocab_size": req.tokenizer_vocab_size,
+        "model_tokenizer_id": req.model_tokenizer_id,
+        "tokenizer_id": req.tokenizer_id,
+    }
+
+    if req.model_vocab_size is not None and req.tokenizer_vocab_size is not None:
+        if req.model_vocab_size < req.tokenizer_vocab_size:
+            warnings.append(
+                f"Kritik İndeks Taşması Riski: Model sözlük boyutu ({req.model_vocab_size}), Tokenizer sözlük boyutundan ({req.tokenizer_vocab_size}) küçük! (IndexError)"
+            )
+        elif req.model_vocab_size > req.tokenizer_vocab_size:
+            notes.append(
+                f"Bilgi: Model sözlük kapasitesi ({req.model_vocab_size}), Tokenizer sözlüğünden ({req.tokenizer_vocab_size}) büyük."
+            )
+
+    if req.model_tokenizer_id and req.tokenizer_id and str(req.model_tokenizer_id) != str(req.tokenizer_id):
+        warnings.append(
+            f"Kritik Tokenizer Uyuşmazlığı: Model '{req.model_tokenizer_id}' tokenizer'ı ile eğitilmiş; seçili tokenizer '{req.tokenizer_id}'."
         )
 
     is_incompatible = any("Kritik" in w for w in warnings)

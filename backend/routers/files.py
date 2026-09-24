@@ -400,6 +400,12 @@ async def process_file(
             detail=f"Dosya bulunamadı: {file_id}"
         )
     
+    if not check_resource_access(file_record, current_user, allow_unowned=True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu dosyaya erişim yetkiniz bulunmuyor."
+        )
+    
     # 2. Zaten process edilmiş mi kontrol et
     existing_doc = db.query(DocumentRecord)\
         .filter(DocumentRecord.file_id == file_id)\
@@ -488,6 +494,14 @@ async def batch_process_files(
                 results["errors"].append({
                     "file_id": file_id,
                     "error": "Dosya bulunamadı"
+                })
+                continue
+            
+            if not check_resource_access(file_record, current_user, allow_unowned=True):
+                results["failed"] += 1
+                results["errors"].append({
+                    "file_id": file_id,
+                    "error": "Bu dosyaya erişim yetkiniz bulunmuyor"
                 })
                 continue
             

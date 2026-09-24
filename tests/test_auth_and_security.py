@@ -477,3 +477,15 @@ def test_rbac_crud_authorization_matrix(client: TestClient):
     assert d_admin_demo.status_code == 204
 
 
+def test_path_traversal_prevention_in_storage_manager():
+    """Dosya sistemi düzeyinde directory traversal saldırılarının engellendiğini doğrula."""
+    from backend.storage import storage_manager
+    
+    with pytest.raises(PermissionError, match="Path traversal detected"):
+        storage_manager.get_file_path("../../etc/passwd")
+
+    with pytest.raises(PermissionError, match="Path traversal detected"):
+        storage_manager.get_file_path("../../../../../system/secrets.json")
+
+
+

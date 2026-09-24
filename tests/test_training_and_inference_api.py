@@ -150,3 +150,39 @@ def test_streaming_generation_endpoint() -> None:
     assert response.status_code == 200
     assert "text/event-stream" in response.headers.get("content-type", "")
 
+
+def test_start_training_incompatible_base_model_blocks() -> None:
+    """Verify that start_training blocks with HTTP 400 when base_model and tokenizer are incompatible."""
+    payload = {
+        "job_name": "sft-incompatible-test",
+        "model_name": "test-finetuned",
+        "job_type": "FULL_SFT",
+        "base_model": "nonexistent_base_model_xyz",
+        "base_version": "1.0.0",
+        "dataset_id": "ds-dummy",
+        "tokenizer_id": "tok-dummy",
+        "epochs": 1,
+        "batch_size": 2,
+        "learning_rate": 0.001,
+        "d_model": 64,
+        "n_layers": 2,
+        "n_heads": 2,
+        "max_seq_len": 32
+    }
+    response = client.post("/api/v1/training/start", json=payload)
+    assert response.status_code == 400
+    assert "uyumsuzluğu" in response.json().get("detail", "") or "bulunamadı" in response.json().get("detail", "")
+
+
+def test_load_model_incompatible_tokenizer_blocks() -> None:
+    """Verify that inference /load blocks with HTTP 400 when an incompatible tokenizer_id is requested."""
+    payload = {
+        "model_name": "nonexistent_model_xyz",
+        "version": "1.0.0",
+        "tokenizer_id": "tok_mismatched"
+    }
+    response = client.post("/api/v1/inference/load", json=payload)
+    assert response.status_code == 400
+    assert "uyumsuzluğu" in response.json().get("detail", "")
+
+

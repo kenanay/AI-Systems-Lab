@@ -18,6 +18,7 @@ import logging
 from backend.database import get_db
 from backend.models import TrainingJob, UserRecord
 from backend.services.training_service import TrainingService
+from backend.services.compatibility_service import CompatibilityService
 from backend.security.dependencies import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,20 @@ def start_training(
         "lora_r": request.lora_r,
         "lora_alpha": request.lora_alpha,
     }
+
+    # Fine-tuning veya base_model belirtilmiş durumlarda zorunlu sunucu uyumluluk doğrulaması
+    if request.base_model:
+        compat_service = CompatibilityService(db)
+        compat = compat_service.verify(
+            model_name=request.base_model,
+            model_version=request.base_version,
+            tokenizer_id=request.tokenizer_id,
+        )
+        if not compat.compatible:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model ve tokenizer uyumsuzluğu: {'; '.join(compat.errors)}"
+            )
 
     try:
         job = service.create_job(

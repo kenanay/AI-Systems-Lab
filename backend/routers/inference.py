@@ -11,8 +11,9 @@ Bu modül eğitilmiş modeller ile metin üretimi (Text Generation) ve
 - Streaming metin üretimi
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, List, Generator
 from pydantic import BaseModel, Field
 import logging
@@ -20,6 +21,9 @@ import json
 import time
 import torch
 import torch.nn.functional as F
+
+from backend.database import get_db
+from backend.services.compatibility_service import CompatibilityService
 
 from src.server.inference_server import ModelManager
 from src.inference.streaming_generation import stream_generate
@@ -71,6 +75,7 @@ class LoadModelRequest(BaseModel):
     model_name: str = Field(..., description="Yüklenecek model adı")
     version: Optional[str] = Field(None, description="Versiyon (varsayılan: en son)")
     registry_dir: str = Field("models", description="Registry dizini")
+    tokenizer_id: Optional[str] = Field(None, description="Doğrulanacak Tokenizer ID")
 
 
 class InferenceGenerateRequest(BaseModel):
@@ -136,10 +141,27 @@ class NextTokenProbsResponse(BaseModel):
     model_name: str
 
 @router.post("/load")
-def load_model(request: LoadModelRequest) -> Dict[str, Any]:
+def load_model(
+    request: LoadModelRequest,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """
     Belirtilen modeli belleğe yükler.
+    Model ve tokenizer uyumluluğunu sunucu kayıtlarından doğrular.
     """
+    if request.tokenizer_id:
+        compat_service = CompatibilityService(db)
+        compat = compat_service.verify(
+            model_name=request.model_name,
+            model_version=request.version,
+            tokenizer_id=request.tokenizer_id
+        )
+        if not compat.compatible:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model ve tokenizer uyumsuzluğu: {'; '.join(compat.errors)}"
+            )
+
     try:
         manager.load_model(
             registry_dir=request.registry_dir,
