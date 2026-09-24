@@ -49,6 +49,113 @@ class ExportModelRequest(BaseModel):
     quantization: str = "none"   # none, fp16, int8, int4
 
 
+class ArtifactCompatibilityCheckRequest(BaseModel):
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    model_vocab_size: Optional[int] = None
+    model_tokenizer_id: Optional[str] = None
+    tokenizer_id: Optional[str] = None
+    tokenizer_vocab_size: Optional[int] = None
+    dataset_version: Optional[str] = None
+    tokenizer_dataset_version: Optional[str] = None
+
+
+class ArtifactCompatibilityCheckResponse(BaseModel):
+    compatible: bool
+    status: str  # "compatible" | "warning" | "incompatible"
+    warnings: List[str]
+    notes: List[str]
+    checks: Dict[str, Any]
+
+
+@router.post("/validate-compatibility", response_model=ArtifactCompatibilityCheckResponse)
+def validate_artifact_compatibility(
+    req: ArtifactCompatibilityCheckRequest,
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
+) -> ArtifactCompatibilityCheckResponse:
+    """
+    Model, Tokenizer ve Dataset artefaktlarının karşılıklı uyumluluğunu doğrular.
+    - Model vocab_size vs Tokenizer vocab_size (indeks taşması kontrolü)
+    - Tokenizer kimliği / mimari eşleşmesi
+    - Dataset versiyon takibi
+    """
+    warnings: List[str] = []
+    notes: List[str] = []
+    checks: Dict[str, Any] = {}
+
+    m_vocab = req.model_vocab_size
+    m_tok_id = req.model_tokenizer_id
+
+    # Eğer model_name verildiyse registry'den metadata oku
+    if req.model_name:
+        try:
+            registry = ModelRegistry(registry_dir="models")
+            loaded = registry.load_model(req.model_name, version=req.model_version)
+            meta = loaded.get("metadata")
+            if meta:
+                tr_cfg = meta.training_config or {}
+                if m_vocab is None:
+                    m_vocab = tr_cfg.get("vocab_size")
+                if m_tok_id is None:
+                    m_tok_id = tr_cfg.get("tokenizer_id") or tr_cfg.get("tokenizer_name")
+        except Exception:
+            pass
+
+    t_vocab = req.tokenizer_vocab_size
+    t_ds_ver = req.tokenizer_dataset_version
+
+    # Eğer tokenizer_id verildiyse DB'den TokenizerRecord kontrol et
+    if req.tokenizer_id:
+        from backend.models import TokenizerRecord
+        tok_rec = db.query(TokenizerRecord).filter(TokenizerRecord.tokenizer_id == req.tokenizer_id).first()
+        if tok_rec:
+            if t_vocab is None:
+                t_vocab = tok_rec.vocab_size
+            if t_ds_ver is None:
+                t_ds_ver = tok_rec.dataset_version
+
+    # 1. Sözlük boyutu kontrolü
+    checks["model_vocab_size"] = m_vocab
+    checks["tokenizer_vocab_size"] = t_vocab
+    if m_vocab is not None and t_vocab is not None:
+        if m_vocab < t_vocab:
+            warnings.append(
+                f"Kritik İndeks Taşması Riski: Model sözlük boyutu ({m_vocab}), Tokenizer sözlük boyutundan ({t_vocab}) küçük! Model çıktılarında sınır aşımı (IndexError) meydana gelecektir."
+            )
+        elif m_vocab > t_vocab:
+            notes.append(
+                f"Bilgi: Model sözlük kapasitesi ({m_vocab}), Tokenizer sözlüğünden ({t_vocab}) büyük. Ekstra embedding kapasitesi mevcut."
+            )
+
+    # 2. Tokenizer eşleşmesi
+    checks["model_tokenizer_id"] = m_tok_id
+    checks["tokenizer_id"] = req.tokenizer_id
+    if m_tok_id and req.tokenizer_id and str(m_tok_id) != str(req.tokenizer_id):
+        warnings.append(
+            f"Tokenizer Uyuşmazlığı: Model '{m_tok_id}' tokenizer'ı ile eğitilmiş; seçili tokenizer '{req.tokenizer_id}'. Token-ID haritaları farklı olabilir."
+        )
+
+    # 3. Dataset versiyonu
+    checks["dataset_version"] = req.dataset_version
+    checks["tokenizer_dataset_version"] = t_ds_ver
+    if req.dataset_version and t_ds_ver and req.dataset_version != t_ds_ver:
+        notes.append(
+            f"Bilgi: Tokenizer derleme dataset versiyonu ({t_ds_ver}) ile mevcut dataset versiyonu ({req.dataset_version}) farklılık gösteriyor."
+        )
+
+    is_incompatible = any("Kritik" in w for w in warnings)
+    status_str = "incompatible" if is_incompatible else ("warning" if warnings else "compatible")
+
+    return ArtifactCompatibilityCheckResponse(
+        compatible=not is_incompatible,
+        status=status_str,
+        warnings=warnings,
+        notes=notes,
+        checks=checks,
+    )
+
+
 @router.get("", response_model=List[Dict[str, Any]])
 def list_models(
     environment: Optional[str] = Query(None, description="Filtre: development, staging, production"),

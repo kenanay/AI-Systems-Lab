@@ -57,10 +57,26 @@ def stamp_and_check_owner(session, context, instances):
     actor = principal.get()
     if actor is None:
         return
+
+    # 1. Viewer rolü sadece okuma yapabilir; oluşturma, güncelleme veya silme yapamaz
+    if actor.role == "viewer" and (session.new or session.dirty or session.deleted):
+        raise PermissionError("Viewer role cannot create, modify, or delete resources")
+
+    # 2. Yeni oluşturulan kaynaklarda owner_id yoksa aktörün ID'sini ata
     for obj in session.new:
         if isinstance(obj, OwnedResource):
-            obj.owner_id = actor.user_id
+            if getattr(obj, "owner_id", None) is None and actor.role != "admin":
+                obj.owner_id = actor.user_id
+
+    # 3. Admin rolü tüm kaynakları (başka kullanıcılara ait veya genel demo/unowned)
+    #    oluşturma, güncelleme ve silme konusunda tam yetkiye sahiptir.
+    if actor.role == "admin":
+        return
+
+    # 4. Standart kullanıcılar (researcher vb.):
+    #    Yalnızca kendi sahip oldukları kaynakları güncelleyebilir veya silebilir.
+    #    Başka kullanıcılara ait kayıtları veya genel demo kayıtlarını (owner_id is None) değiştiremez/silemez.
     for obj in session.dirty | session.deleted:
-        if isinstance(obj, OwnedResource) and obj.owner_id != actor.user_id:
-            if actor.role != "admin" and not (actor.role == "admin" and obj.owner_id is None):
-                raise PermissionError("Resource belongs to another user")
+        if isinstance(obj, OwnedResource):
+            if obj.owner_id != actor.user_id:
+                raise PermissionError("Resource belongs to another user or is a protected demo resource")

@@ -337,3 +337,143 @@ def test_row_level_data_isolation_between_users(client: TestClient):
     get_admin = client.get(f"/api/v1/files/{file_id_a}", headers=headers_admin)
     assert get_admin.status_code == 200
 
+
+def test_rbac_crud_authorization_matrix(client: TestClient):
+    """
+    Kapsamlı RBAC CRUD Yetki Matrisi Testi:
+    Admin, Researcher ve Viewer rolleri için Create, Read, Update, Delete işlemlerini
+    kendi kaynağı, başka kullanıcının kaynağı ve genel demo (owner_id=None) kaynağı üzerinde doğrular.
+    """
+    global_rate_limiter.reset()
+    import time
+    from backend.database import SessionLocal
+    from backend.models import FileRecord
+    from backend.security.password import hash_password
+
+    ts = int(time.time() * 1000)
+
+    # 1. Kullanıcıları oluştur veya hazırla
+    db = SessionLocal()
+    try:
+        # Viewer kullanıcısı
+        viewer_u = db.query(UserRecord).filter(UserRecord.username == f"viewer_{ts}").first()
+        if not viewer_u:
+            viewer_u = UserRecord(
+                username=f"viewer_{ts}",
+                email=f"viewer_{ts}@example.com",
+                hashed_password=hash_password("ViewerPass123!"),
+                role="viewer",
+                is_active=True
+            )
+            db.add(viewer_u)
+
+        # Demo dosyası (owner_id = None)
+        demo_file = FileRecord(
+            file_id=f"demo_file_{ts}",
+            original_name="demo_dataset.txt",
+            relative_path=f"demo_dataset_{ts}.txt",
+            mime_type="text/plain",
+            size_bytes=100,
+            sha256="0" * 64,
+            owner_id=None,  # Genel demo verisi
+        )
+        db.add(demo_file)
+        db.commit()
+    finally:
+        db.close()
+
+    # Token alımları
+    login_admin = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    admin_tok = login_admin.json()["access_token"]
+    headers_admin = {"Authorization": f"Bearer {admin_tok}"}
+
+    login_res = client.post("/api/v1/auth/login", json={"username_or_email": "researcher", "password": "researcher123"})
+    res_tok = login_res.json()["access_token"]
+    headers_res = {"Authorization": f"Bearer {res_tok}"}
+
+    login_view = client.post("/api/v1/auth/login", json={"username_or_email": f"viewer_{ts}", "password": "ViewerPass123!"})
+    view_tok = login_view.json()["access_token"]
+    headers_view = {"Authorization": f"Bearer {view_tok}"}
+
+    demo_id = f"demo_file_{ts}"
+
+    # --- 1. VIEWER ROLÜ ---
+    # Read: Demo dosyasını okuyabilir
+    r_view_demo = client.get(f"/api/v1/files/{demo_id}", headers=headers_view)
+    assert r_view_demo.status_code == 200
+
+    # Create: Dosya yükleyemez (403 Forbidden)
+    c_view = client.post(
+        "/api/v1/files/upload",
+        files={"file": ("viewer_test.txt", b"viewer content", "text/plain")},
+        headers=headers_view
+    )
+    assert c_view.status_code == 403
+
+    # Update: Demo dosyasını güncelleyemez (403 Forbidden)
+    u_view = client.patch(
+        f"/api/v1/files/{demo_id}",
+        json={"security_level": "restricted"},
+        headers=headers_view
+    )
+    assert u_view.status_code == 403
+
+    # Delete: Demo dosyasını silemez (403 Forbidden)
+    d_view = client.delete(f"/api/v1/files/{demo_id}", headers=headers_view)
+    assert d_view.status_code == 403
+
+    # --- 2. RESEARCHER ROLÜ ---
+    # Create: Kendi dosyasını oluşturabilir
+    c_res = client.post(
+        "/api/v1/files/upload",
+        files={"file": (f"res_file_{ts}.txt", b"researcher content", "text/plain")},
+        headers=headers_res
+    )
+    assert c_res.status_code == 201
+    res_file_id = c_res.json()["file_id"]
+
+    # Read: Demo dosyasını ve kendi dosyasını okuyabilir
+    assert client.get(f"/api/v1/files/{demo_id}", headers=headers_res).status_code == 200
+    assert client.get(f"/api/v1/files/{res_file_id}", headers=headers_res).status_code == 200
+
+    # Update: Kendi dosyasını güncelleyebilir
+    u_res_own = client.patch(
+        f"/api/v1/files/{res_file_id}",
+        json={"security_level": "INTERNAL"},
+        headers=headers_res
+    )
+    assert u_res_own.status_code == 200
+
+    # Update: Demo dosyasını DEĞİŞTİREMEZ (403 Forbidden)
+    u_res_demo = client.patch(
+        f"/api/v1/files/{demo_id}",
+        json={"security_level": "RESTRICTED"},
+        headers=headers_res
+    )
+    assert u_res_demo.status_code == 403
+
+    # Delete: Demo dosyasını SİLEMEZ (403 Forbidden)
+    d_res_demo = client.delete(f"/api/v1/files/{demo_id}", headers=headers_res)
+    assert d_res_demo.status_code == 403
+
+    # Delete: Kendi dosyasını silebilir
+    d_res_own = client.delete(f"/api/v1/files/{res_file_id}", headers=headers_res)
+    assert d_res_own.status_code == 204
+
+    # --- 3. ADMIN ROLÜ ---
+    # Read: Demo dosyasını okuyabilir
+    assert client.get(f"/api/v1/files/{demo_id}", headers=headers_admin).status_code == 200
+
+    # Update: Demo dosyasını güncelleyebilir (Admin yetkisi tamdır)
+    u_admin_demo = client.patch(
+        f"/api/v1/files/{demo_id}",
+        json={"security_level": "PUBLIC"},
+        headers=headers_admin
+    )
+    assert u_admin_demo.status_code == 200
+
+    # Delete: Demo dosyasını silebilir (Admin yetkisi tamdır)
+    d_admin_demo = client.delete(f"/api/v1/files/{demo_id}", headers=headers_admin)
+    assert d_admin_demo.status_code == 204
+
+

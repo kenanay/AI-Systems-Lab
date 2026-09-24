@@ -20,10 +20,12 @@ import { useAuth } from '@/lib/auth-context';
 export interface ArtifactCompatibility {
   isValid: boolean;
   warnings: string[];
+  notes?: string[];
 }
 
 // Experiment state type
 export interface ExperimentState {
+  ownerUserId?: string | null;
   // Identifiers
   experimentId?: string;
   experimentName?: string;
@@ -87,41 +89,54 @@ const ExperimentContext = createContext<ExperimentContextType | undefined>(undef
 
 export function ExperimentProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [experiment, setExperiment] = useState<ExperimentState>({});
-
+  const currentUserId = user?.user_id || 'guest';
+  
   // Kullanıcıya özel localStorage anahtarı (Kullanıcı değiştiğinde veya çıkış yapıldığında izolasyon sağlar)
-  const storageKey = user?.user_id
-    ? `ai-lab-experiment-context:${user.user_id}`
+  const storageKey = user?.user_id 
+    ? `ai-lab-experiment-context:${user.user_id}` 
     : 'ai-lab-experiment-context:guest';
+
+  const [experiment, setExperiment] = useState<ExperimentState>({});
+  // Hangi storageKey'in başarıyla yüklendiğini takip eder; önceki kullanıcının state'inin yeni kullanıcıya yazılmasını engeller
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
 
   // Artefakt uyumluluk denetleyicisi (Dataset - Tokenizer - Model uyumu)
   const validateCompatibility = useCallback((targetState?: ExperimentState): ArtifactCompatibility => {
     const state = targetState || experiment;
     const warnings: string[] = [];
+    const notes: string[] = [];
 
-    // Dataset vs Tokenizer kontrolü
+    // Dataset vs Tokenizer kontrolü (Bilgilendirme notu; model eğitimini bloke etmez)
     if (state.datasetVersion && state.tokenizerDatasetVersion && state.datasetVersion !== state.tokenizerDatasetVersion) {
-      warnings.push(
-        `Seçili Tokenizer (${state.tokenizerName}) farklı bir dataset versiyonu (${state.tokenizerDatasetVersion}) ile eğitilmiş; aktif dataset: ${state.datasetVersion}.`
+      notes.push(
+        `Bilgi: Seçili Tokenizer (${state.tokenizerName}) farklı bir dataset versiyonu (${state.tokenizerDatasetVersion}) ile eğitilmiş; aktif dataset: ${state.datasetVersion}.`
       );
     }
 
-    // Tokenizer vs Model kontrolü
+    // Tokenizer vs Model kontrolü (Kimlik ve haritalama uyuşmazlığı)
     if (state.modelTokenizerId && state.tokenizerId && state.modelTokenizerId !== state.tokenizerId) {
       warnings.push(
-        `Seçili Model (${state.modelName}) mevcut Tokenizer (${state.tokenizerName}) yerine farklı bir tokenizer ile eğitilmiş.`
+        `Tokenizer Uyuşmazlığı: Model (${state.modelName}) '${state.modelTokenizerId}' kimlikli tokenizer ile eğitilmiş; seçili tokenizer '${state.tokenizerId}'. Token-ID eşlemeleri farklı olabileceğinden model beklenmeyen çıktılar üretebilir.`
       );
     }
 
-    if (state.modelVocabSize && state.tokenizerVocabSize && state.modelVocabSize !== state.tokenizerVocabSize) {
-      warnings.push(
-        `Sözlük boyutu uyuşmazlığı: Model sözlüğü ${state.modelVocabSize}, Tokenizer sözlüğü ${state.tokenizerVocabSize}. Tahminlerde indeks taşması riski var.`
-      );
+    // Sözlük boyutu kontrolü: Yalnızca Tokenizer > Model olduğunda gerçek indeks taşması yaşanır
+    if (state.modelVocabSize && state.tokenizerVocabSize) {
+      if (state.modelVocabSize < state.tokenizerVocabSize) {
+        warnings.push(
+          `Kritik İndeks Taşması Riski: Model embedding sözlük boyutu (${state.modelVocabSize}), Tokenizer sözlük boyutundan (${state.tokenizerVocabSize}) küçük! Üretilen token ID'leri model sınırlarını aşacaktır.`
+        );
+      } else if (state.modelVocabSize > state.tokenizerVocabSize) {
+        notes.push(
+          `Bilgi: Model sözlük kapasitesi (${state.modelVocabSize}), Tokenizer sözlüğünden (${state.tokenizerVocabSize}) büyük. Fazladan embedding rezervi bulunmaktadır.`
+        );
+      }
     }
 
     return {
       isValid: warnings.length === 0,
       warnings,
+      notes,
     };
   }, [experiment]);
 
@@ -133,28 +148,41 @@ export function ExperimentProvider({ children }: { children: React.ReactNode }) 
       const stored = localStorage.getItem(storageKey);
       if (stored) {
         try {
-          const parsed = JSON.parse(stored);
-          setExperiment(parsed);
-          return;
+          const parsed: ExperimentState = JSON.parse(stored);
+          if (!parsed.ownerUserId || parsed.ownerUserId === currentUserId) {
+            setExperiment({ ...parsed, ownerUserId: currentUserId });
+            setLoadedStorageKey(storageKey);
+            return;
+          }
         } catch (e) {
           console.error('Failed to load experiment context:', e);
         }
       }
       // Kullanıcı değiştiyse veya kayıt yoksa temiz state'e geç
-      setExperiment({});
+      setExperiment({ ownerUserId: currentUserId });
+      setLoadedStorageKey(storageKey);
     }
-  }, [storageKey]);
+  }, [storageKey, currentUserId]);
 
-  // Save to localStorage on change
+  // Save to localStorage on change - YALNIZCA bu kullanıcının state'i başarıyla yüklendikten sonra kaydet
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      if (Object.keys(experiment).length > 0) {
-        localStorage.setItem(storageKey, JSON.stringify(experiment));
+      // Race condition koruması: Önceki kullanıcının render state'ini yeni kullanıcıya yazma
+      if (loadedStorageKey !== storageKey) {
+        return;
+      }
+      if (experiment.ownerUserId && experiment.ownerUserId !== currentUserId) {
+        return;
+      }
+
+      const contentKeys = Object.keys(experiment).filter(k => k !== 'ownerUserId');
+      if (contentKeys.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify({ ...experiment, ownerUserId: currentUserId }));
       } else {
         localStorage.removeItem(storageKey);
       }
     }
-  }, [experiment, storageKey]);
+  }, [experiment, storageKey, loadedStorageKey, currentUserId]);
 
   const setDataset = useCallback(
     (id: string, name: string, version?: string, options?: { resetDownstream?: boolean }) => {

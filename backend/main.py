@@ -81,6 +81,15 @@ if settings.enable_cors:
         allow_headers=["*"],
     )
 
+
+@app.exception_handler(PermissionError)
+async def permission_error_handler(request, exc: PermissionError):
+    return JSONResponse(
+        status_code=403,
+        content={"detail": str(exc)},
+    )
+
+
 # Routers
 app.include_router(files.router, dependencies=[Depends(require_access)])
 app.include_router(datasets.router, dependencies=[Depends(require_access)])
