@@ -12,7 +12,7 @@ from src.security.context import Principal, principal
 
 
 async def require_access(request: Request, user: UserRecord = Depends(get_current_user)):
-    role = getattr(request.state, "effective_role", user.role)
+    role = getattr(request.state, "effective_role", user.role).lower()
     if request.method not in {"GET", "HEAD", "OPTIONS"} and role == "viewer":
         raise HTTPException(403, "Read-only account")
     # Cookie-authenticated mutations must originate from our frontend.

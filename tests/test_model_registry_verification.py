@@ -55,6 +55,27 @@ def test_model_registry_integrity_verification():
             registry.load_model("test-llm", version="1.0.0", verify_integrity=True)
 
 
+def test_inference_pipeline_rejects_executable_checkpoints(tmp_path):
+    """The standalone inference loader must use the same safe boundary as the registry."""
+    import torch
+    from src.inference.pipeline import InferencePipeline
+
+    flag_file = tmp_path / "pipeline-pwned.txt"
+
+    class Exploit:
+        def __reduce__(self):
+            import os
+            return (os.system, (f"touch {flag_file}",))
+
+    checkpoint = tmp_path / "malicious.pt"
+    torch.save({"payload": Exploit()}, checkpoint)
+
+    with pytest.raises(ValueError, match="weights_only=True"):
+        InferencePipeline.from_pretrained(checkpoint, tmp_path / "unused-tokenizer.json")
+
+    assert not flag_file.exists()
+
+
 def test_artifact_compatibility_endpoint():
     from fastapi.testclient import TestClient
     from backend.main import app
@@ -202,7 +223,6 @@ def test_artifact_compatibility_endpoint():
     assert data_missing_meta["compatible"] is False
     assert data_missing_meta["status"] == "verification_failed"
     assert any("zorunlu sözlük boyutu" in w or "eksik" in w for w in data_missing_meta["warnings"])
-
 
 
 

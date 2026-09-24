@@ -20,7 +20,7 @@ from backend.config import settings
 from backend.database import get_db
 from backend.models import APIKeyRecord, UserRecord, utc_now
 from backend.security.api_keys import generate_api_key
-from backend.security.dependencies import get_current_user, require_role
+from backend.security.dependencies import ROLE_RANKS, get_current_user, require_role
 from backend.security.jwt import create_access_token, create_refresh_token, decode_token
 from backend.security.password import hash_password, verify_password
 from backend.security.rate_limiter import rate_limit
@@ -344,9 +344,17 @@ def create_user_api_key(
     raw_key, key_prefix, key_hash = generate_api_key()
 
     target_role = (req.role or current_user.role).strip().lower()
-    # Kullanıcı kendi rolünden daha yüksek bir rol atayamaz (admin hariç)
-    if current_user.role != "admin" and target_role == "admin":
-        target_role = current_user.role
+    if target_role not in ROLE_RANKS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Geçersiz API anahtarı rolü: {target_role}.",
+        )
+    # A key can only narrow the account's permissions; it cannot elevate them.
+    if ROLE_RANKS[target_role] > ROLE_RANKS.get(current_user.role, -1):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API anahtarı kullanıcı hesabından daha yüksek yetki taşıyamaz.",
+        )
 
     expires_at = None
     if req.expires_in_days:

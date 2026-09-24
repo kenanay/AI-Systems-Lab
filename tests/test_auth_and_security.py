@@ -112,6 +112,57 @@ def test_api_key_generation_and_hashing():
     assert hash_api_key("sk_live_fakedifferent") != key_hash
 
 
+def test_api_key_role_scope_is_enforced_for_admin_endpoints(client: TestClient):
+    """A scoped API key must not regain the parent user's admin privileges."""
+    global_rate_limiter.reset()
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "admin", "password": "admin"},
+    )
+    assert login.status_code == 200
+    admin_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    create_key = client.post(
+        "/api/v1/auth/api-keys",
+        json={"name": "read-only-admin-key", "role": "researcher"},
+        headers=admin_headers,
+    )
+    assert create_key.status_code == 201, create_key.text
+    scoped_key = create_key.json()["raw_key"]
+
+    # This endpoint is admin-only. The parent account is admin, but the key is
+    # explicitly scoped to researcher and must therefore be rejected.
+    response = client.get("/api/v1/auth/users", headers={"X-API-Key": scoped_key})
+    assert response.status_code == 403
+
+
+def test_api_key_role_cannot_be_invalid_or_escalated(client: TestClient):
+    """API key creation fails closed for unknown and higher-privilege roles."""
+    global_rate_limiter.reset()
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "researcher", "password": "researcher123"},
+    )
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    invalid = client.post(
+        "/api/v1/auth/api-keys",
+        json={"name": "invalid-role-key", "role": "superadmin"},
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+
+    escalated = client.post(
+        "/api/v1/auth/api-keys",
+        json={"name": "escalated-key", "role": "admin"},
+        headers=headers,
+    )
+    assert escalated.status_code == 403
+
+
 # ============================================================================
 # 4. Rate Limiter Testleri
 # ============================================================================
@@ -819,7 +870,6 @@ def test_sft_preflight_missing_response_column(tmp_path, monkeypatch):
 
     finally:
         db.close()
-
 
 
 

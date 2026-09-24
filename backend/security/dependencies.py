@@ -22,6 +22,30 @@ from backend.security.api_keys import hash_api_key
 # HTTP Bearer şeması (auto_error=False sayesinde hem opsiyonel hem zorunlu auth'u destekler)
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# A key may narrow a user's permissions, but it must never widen them.  Keep
+# the hierarchy in one place so cookie/JWT auth, API keys and endpoint-level
+# RBAC all evaluate the same effective role.
+ROLE_RANKS = {"viewer": 0, "researcher": 1, "admin": 2}
+
+
+def _effective_role(user_role: str, credential_role: Optional[str] = None) -> Optional[str]:
+    """Return the least-privileged valid role represented by a credential."""
+    normalized_user_role = (user_role or "").strip().lower()
+    if normalized_user_role not in ROLE_RANKS:
+        return None
+
+    if credential_role is None:
+        return normalized_user_role
+
+    normalized_credential_role = (credential_role or "").strip().lower()
+    if normalized_credential_role not in ROLE_RANKS:
+        return None
+
+    return min(
+        (normalized_user_role, normalized_credential_role),
+        key=lambda role: ROLE_RANKS[role],
+    )
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -87,9 +111,15 @@ def get_current_user(
                 detail="API anahtarına ait kullanıcı hesabı aktif değil.",
                 headers={"WWW-Authenticate": "Bearer"}
             )
+        effective_role = _effective_role(user.role, api_key_rec.role)
+        if effective_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API anahtarı geçersiz bir rol kapsamına sahip.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if request is not None:
-            ranks = {"viewer": 0, "researcher": 1, "admin": 2}
-            request.state.effective_role = min([user.role, api_key_rec.role], key=lambda r: ranks.get(r, -1))
+            request.state.effective_role = effective_role
         return user
 
     # 2. Standart JWT Token Denetimi
@@ -131,13 +161,23 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    if request is not None:
+        request.state.effective_role = _effective_role(user.role)
+        if request.state.effective_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Kullanıcı hesabında geçersiz rol tanımlı.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     return user
 
 
 def get_optional_current_user(
     auth_header: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None,
 ) -> Optional[UserRecord]:
     """
     Opsiyonel kimlik doğrulama.
@@ -149,11 +189,14 @@ def get_optional_current_user(
     elif x_api_key:
         token_str = x_api_key.strip()
 
+    if not token_str and request is not None:
+        token_str = request.cookies.get("ailab_access")
+
     if not token_str:
         return None
 
     try:
-        return get_current_user(auth_header=auth_header, x_api_key=x_api_key, db=db)
+        return get_current_user(auth_header=auth_header, x_api_key=x_api_key, db=db, request=request)
     except HTTPException:
         return None
 
@@ -168,9 +211,15 @@ def require_role(*roles: str):
         @router.delete("/model/{name}", dependencies=[Depends(require_role("admin"))])
         @router.post("/train", dependencies=[Depends(require_role("admin", "researcher"))])
     """
-    def role_checker(user: UserRecord = Depends(get_current_user)) -> UserRecord:
+    def role_checker(
+        request: Request,
+        user: UserRecord = Depends(get_current_user),
+    ) -> UserRecord:
         allowed_roles = [r.lower() for r in roles]
-        user_role = (user.role or "").lower()
+        # `get_current_user` stores the role narrowed by an API key here.
+        # Checking `user.role` alone would let a scoped admin key perform
+        # admin-only operations.
+        user_role = getattr(request.state, "effective_role", user.role or "").lower()
 
         # Admin her zaman geçiş hakkına sahiptir
         if user_role == "admin" or user_role in allowed_roles:
@@ -180,7 +229,7 @@ def require_role(*roles: str):
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 f"Bu işlem için yetkiniz yetersiz. "
-                f"Gerekli roller: {', '.join(roles)} (Mevcut rolünüz: {user.role})"
+                f"Gerekli roller: {', '.join(roles)} (Mevcut rolünüz: {user_role})"
             )
         )
 

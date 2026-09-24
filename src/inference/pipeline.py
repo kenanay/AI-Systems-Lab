@@ -138,8 +138,23 @@ class InferencePipeline:
         
         logger.info(f"Loading model from {model_path}...")
         
-        # Load model
-        checkpoint = torch.load(model_path, map_location=device)
+        # Load only tensor-like checkpoint data.  This pipeline is also a
+        # public library entry point, so it must preserve the same
+        # deserialization boundary as ModelRegistry instead of falling back to
+        # executable pickle loading.
+        from src.model.gpt import GPTConfig
+
+        try:
+            with torch.serialization.safe_globals([GPTConfig]):
+                checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+        except AttributeError:
+            # Older supported torch versions may not expose safe_globals, but
+            # still support the weights_only boundary.
+            checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+        except Exception as exc:
+            raise ValueError(
+                "Güvenilmeyen veya bozuk checkpoint: weights_only=True ile yüklenemedi."
+            ) from exc
         
         # Extract model state dict
         if isinstance(checkpoint, dict):
@@ -156,7 +171,7 @@ class InferencePipeline:
         # Create model from config or infer from state dict
         if config_dict is not None:
             # Model config available
-            from src.model.gpt import GPTModel, GPTConfig
+            from src.model.gpt import GPTModel
             
             # Convert config dict to GPTConfig
             model_config = GPTConfig(**config_dict) if isinstance(config_dict, dict) else config_dict
