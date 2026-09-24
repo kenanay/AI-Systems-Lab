@@ -1,5 +1,8 @@
 # 🔍 Local AI Research Lab - Detaylı Sistem İncelemesi
 
+> **Arşiv notu:** Bu inceleme 21 Eylül 2026 tarihindeki snapshot'ı anlatır.
+> Güncel özellik, mimari ve kullanım bilgisi için [güncel dokümantasyon merkezine](docs/README.md) bakın.
+
 **Tarih:** 21 Eylül 2026  
 **Geliştirici:** Kenan AY  
 **Versiyon:** 1.2.0  

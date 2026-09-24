@@ -2,6 +2,8 @@
 
 Bu sözlük, AI Research Lab platformunda kullanılan teknik terimleri açıklar.
 
+Güncel modül kapsamı için [Dokümantasyon Ana Sayfası](../README.md) ve [Veri Sözleşmeleri](data-contracts.md) esas alınır.
+
 ## A
 
 ### Activation Function (Aktivasyon Fonksiyonu)

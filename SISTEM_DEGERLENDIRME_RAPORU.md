@@ -1,5 +1,8 @@
 # AI Systems Lab - Kapsamlı Sistem Değerlendirmesi
 
+> **Arşiv notu:** Bu rapor 19 Eylül 2026 snapshot'ına aittir. Güncel ürün
+> davranışı için [docs/README.md](docs/README.md) ve çalışan API şeması esas alınmalıdır.
+
 **Tarih:** 19 Eylül 2026  
 **Son Commit:** c26cda8  
 **Test Durumu:** 181/181 PASSED ✅

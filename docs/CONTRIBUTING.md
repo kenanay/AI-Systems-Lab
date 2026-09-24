@@ -27,7 +27,12 @@ pip install -e ".[dev]"
 cd frontend
 npm install
 cd ..
+
+# Tüm uygulamayı local başlatın
+./scripts/start_app.sh start
 ```
+
+Windows'ta `scripts\start_app.cmd start` kullanabilirsiniz. Launcher dolu portları algılar; mevcut süreçleri sonlandırmadan bir sonraki boş portu seçer.
 
 ## Geliştirme Süreci
 
@@ -124,6 +129,8 @@ git commit -m "feat: add multi-head attention implementation"
 git push origin feature/my-new-feature
 ```
 
+Dokümantasyon değişikliği yapan PR'lar için ilgili özellik rehberini, API haritasını ve gerekiyorsa veri sözleşmesini aynı değişiklikte güncelleyin.
+
 **Commit Mesajı Formatı:**
 
 - `feat:` Yeni özellik
@@ -154,6 +161,7 @@ PR'ınız şunları kontrol eder:
 - ✅ Performance
 - ✅ Güvenlik
 - ✅ Kiro hooks geçişi
+- ✅ Gerçek çıktı, simülasyon ve demo davranışlarının ayrıştırılması
 
 ## Özel Alanlar İçin Kurallar
 

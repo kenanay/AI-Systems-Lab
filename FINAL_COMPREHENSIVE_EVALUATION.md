@@ -1,5 +1,8 @@
 # Local AI Research Lab - Final Kapsamlı Değerlendirme Raporu
 
+> **Arşiv notu:** Bu değerlendirme 22 Eylül 2026 tarihli durum içindir.
+> Güncel kullanıcı ve teknik kılavuz [docs/README.md](docs/README.md) içindedir.
+
 **Tarih:** 22 Eylül 2026  
 **Değerlendirme Tipi:** Detaylı Teknik İnceleme  
 **Versiyon:** 1.2.0  

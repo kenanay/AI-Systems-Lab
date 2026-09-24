@@ -2,6 +2,8 @@
 
 Bu doküman AI Research Lab platformunda öğrenme yolculuğu için gereken ön bilgileri ve bunlar arasındaki bağımlılık ilişkilerini gösterir.
 
+Güncel uygulama rotaları için [Öğrenme Yolu ve Laboratuvarlar](../features/learning-labs.md), gerçek veri/model hattı için [Kullanıcı Kılavuzu](../user-guide.md) ile birlikte okuyun. Bu harita kavramsal sırayı gösterir; laboratuvar simülasyonu üretim modelinin ölçümü değildir.
+
 ## Ön Bilgi Bağımlılık Grafiği
 
 ### Temel Matematik

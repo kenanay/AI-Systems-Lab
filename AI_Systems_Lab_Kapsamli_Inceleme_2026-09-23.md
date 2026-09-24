@@ -1,5 +1,8 @@
 # AI Systems Lab – Kapsamlı Yazılım ve Mimari Değerlendirmesi
 
+> **Arşiv notu:** Bu rapor 23 Eylül 2026 tarihli commit incelemesidir.
+> Sonraki düzeltmelerin güncel karşılığı için [güncel dokümantasyon merkezini](docs/README.md) ve çalışan OpenAPI şemasını kullanın.
+
 **İnceleme tarihi:** 23 Eylül 2026  
 **Kaynak depo:** [kenanay/AI-Systems-Lab](https://github.com/kenanay/AI-Systems-Lab)  
 **İncelenen dal:** `main`  

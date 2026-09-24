@@ -353,6 +353,13 @@ Kişisel veri ve lisans kontrolü varsayılan davranış.
 
 ## 📖 Dokümantasyon
 
+- [Güncel Dokümantasyon Merkezi](docs/README.md)
+- [Kullanıcı Kılavuzu](docs/user-guide.md)
+- [Mimari](docs/architecture.md)
+- [Uçtan Uca Senaryolar](docs/workflows.md)
+- [Özellik Rehberleri](docs/features/)
+- [API Haritası](docs/development/api-map.md)
+- [Güvenlik ve Veri Yönetişimi](docs/operations/security.md)
 - [Proje İlkeleri](.kiro/steering/00-project-principles.md)
 - [Matematik Açıklama Standardı](.kiro/steering/01-math-explanation-standard.md)
 - [Öğrenme İçeriği Standardı](.kiro/steering/02-learning-content-standard.md)
