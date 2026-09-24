@@ -172,3 +172,20 @@ def authenticated_legacy_feature_tests(request):
             app.dependency_overrides.pop(get_current_user, None)
         else:
             app.dependency_overrides[get_current_user] = old
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Birim testler arasında rate limiter durumunu sıfırlar."""
+    try:
+        from backend.security.rate_limiter import global_rate_limiter
+        global_rate_limiter.reset()
+    except Exception:
+        pass
+    yield
+    try:
+        from backend.security.rate_limiter import global_rate_limiter
+        global_rate_limiter.reset()
+    except Exception:
+        pass
+

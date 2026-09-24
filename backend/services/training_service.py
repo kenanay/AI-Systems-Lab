@@ -116,8 +116,17 @@ class TrainingService:
                 if "token_ids" not in schema.names:
                     raise ValueError("Pretrain veri kümesinde zorunlu 'token_ids' sütunu bulunamadı.")
             elif job_type in {'FULL_SFT', 'LORA_SFT'}:
-                if "instruction" not in schema.names and "token_ids" not in schema.names:
-                    raise ValueError("SFT veri kümesinde zorunlu 'instruction' veya 'token_ids' sütunu bulunamadı.")
+                # SFT instruction dataset formatı:
+                # 1) 'instruction' ve 'response' sütunları bir arada bulunmalıdır
+                # 2) veya JSON satırları içeren 'text' sütunu bulunmalıdır
+                # 3) veya derlenmiş 'token_ids' bulunmalıdır
+                has_instr_resp = ("instruction" in schema.names and "response" in schema.names)
+                has_text = "text" in schema.names
+                has_tokens = "token_ids" in schema.names
+                if not (has_instr_resp or has_text or has_tokens):
+                    if "instruction" in schema.names and "response" not in schema.names:
+                        raise ValueError("SFT veri kümesinde 'instruction' sütunu mevcut ancak zorunlu 'response' sütunu eksik!")
+                    raise ValueError("SFT veri kümesinde zorunlu ('instruction', 'response') veya 'text' sütunları bulunamadı.")
 
             if "token_ids" in schema.names:
                 import pandas as pd

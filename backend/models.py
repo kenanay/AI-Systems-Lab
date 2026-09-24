@@ -33,6 +33,23 @@ class OwnedResource:
 
 
 
+class ContentRecord(Base):
+    """
+    Fiziksel içerik deposu (Content Addressable Storage) kaydı.
+    Aynı SHA-256 özetine sahip tekil fiziksel dosyanın yolunu, boyutunu ve aktif referans sayısını tutar.
+    Eşzamanlı işlemlerde yarış durumlarını (race condition) engeller.
+    """
+    __tablename__ = "content_records"
+
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    relative_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    ref_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE", nullable=False)  # ACTIVE, DELETING
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
 class FileRecord(OwnedResource, Base):
     """
     Ham dosya kaydı.

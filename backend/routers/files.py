@@ -8,9 +8,10 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from typing import List, Any
 import logging
+import threading
 
 from backend.database import get_db
-from backend.models import FileRecord, DocumentRecord, UserRecord
+from backend.models import FileRecord, DocumentRecord, UserRecord, ContentRecord
 from backend.security.dependencies import (
     get_current_user,
     require_role,
@@ -33,6 +34,8 @@ from backend.services.ingestion_service import ingestion_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
+
+_content_store_lock = threading.Lock()
 
 
 @router.post("/upload", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -141,31 +144,48 @@ async def upload_file(
     # 6. File ID üret
     file_id = generate_file_id()
     
-    # 7. Fiziksel içerik kontrolü ve kaydetme (Content Store deduplication)
-    # Başka bir kullanıcı veya demo veri aynı fiziksel içeriğe sahipse diskte tekrar oluşturma, fiziksel yolu paylaş
-    token = principal.set(Principal("system", "admin"))
-    try:
-        content_existing = db.query(FileRecord).filter(FileRecord.sha256 == sha256).first()
-    finally:
-        principal.reset(token)
-
-    if content_existing and storage_manager.file_exists(content_existing.relative_path):
-        relative_path = content_existing.relative_path
-        logger.info(f"Fiziksel içerik havuzundan mevcut dosya yolu yeniden kullanıldı: {relative_path}")
-    else:
-        from io import BytesIO
-        file_stream = BytesIO(file_content)
-        relative_path, calculated_sha256 = storage_manager.save_file(
-            file_stream,
-            filename,
-            file_id
-        )
-        # SHA-256 kontrolü (güvenlik)
-        if sha256 != calculated_sha256:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="SHA-256 uyuşmazlığı tespit edildi"
-            )
+    # 7. Fiziksel içerik kontrolü ve kaydetme (Content Store atomic deduplication)
+    # Aynı içerik için ContentRecord ve kilit üzerinden yarış durumlarını (race condition) engelle
+    with _content_store_lock:
+        token = principal.set(Principal("system", "admin"))
+        try:
+            content_rec = db.query(ContentRecord).filter(ContentRecord.sha256 == sha256).first()
+            if content_rec and content_rec.status == "ACTIVE" and storage_manager.file_exists(content_rec.relative_path):
+                relative_path = content_rec.relative_path
+                content_rec.ref_count += 1
+                db.commit()
+                logger.info(f"Mevcut ContentRecord yeniden kullanıldı: {relative_path} (ref_count={content_rec.ref_count})")
+            else:
+                from io import BytesIO
+                file_stream = BytesIO(file_content)
+                rel_path_obj, calculated_sha256 = storage_manager.save_file(
+                    file_stream,
+                    filename,
+                    file_id
+                )
+                relative_path = str(rel_path_obj)
+                if sha256 != calculated_sha256:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="SHA-256 uyuşmazlığı tespit edildi"
+                    )
+                if content_rec:
+                    content_rec.relative_path = relative_path
+                    content_rec.ref_count = 1
+                    content_rec.status = "ACTIVE"
+                    content_rec.size_bytes = file_size
+                else:
+                    content_rec = ContentRecord(
+                        sha256=sha256,
+                        relative_path=relative_path,
+                        size_bytes=file_size,
+                        ref_count=1,
+                        status="ACTIVE"
+                    )
+                    db.add(content_rec)
+                db.commit()
+        finally:
+            principal.reset(token)
     
     # 8. Kullanıcıya özel bağımsız FileRecord kaydı
     file_record = FileRecord(
@@ -296,33 +316,47 @@ def delete_file(
             detail="Bu dosyayı silme yetkiniz bulunmuyor."
         )
     
-    # 1. Başka bir FileRecord kaydının aynı fiziksel dosyayı (relative_path veya sha256) kullanıp kullanmadığını kontrol et
+    # 1. Başka bir FileRecord kaydının aynı fiziksel dosyayı kullanıp kullanmadığını ve ContentRecord'u kontrol et
     rel_path = file_record.relative_path
     file_sha = file_record.sha256
 
-    # Database kaydını sil
-    db.delete(file_record)
-    db.commit()
+    with _content_store_lock:
+        # Kullanıcının FileRecord kaydını sil
+        db.delete(file_record)
+        db.commit()
 
-    # 2. Fiziksel dosya için sistem genelindeki kalan referans sayısını kontrol et
-    token = principal.set(Principal("system", "admin"))
-    try:
-        other_refs_count = db.query(FileRecord).filter(
-            (FileRecord.relative_path == rel_path) |
-            (FileRecord.sha256 == file_sha)
-        ).count()
-    finally:
-        principal.reset(token)
+        # 2. ContentRecord üzerinden atomik referans sayımı ve durum yönetimi
+        token = principal.set(Principal("system", "admin"))
+        should_delete_physical = False
+        try:
+            content_rec = db.query(ContentRecord).filter(ContentRecord.sha256 == file_sha).first()
+            remaining_file_records = db.query(FileRecord).filter(FileRecord.sha256 == file_sha).count()
 
-    # 3. Yalnızca başka hiçbir aktif referans kalmadığında fiziksel dosyayı sil
-    if other_refs_count == 0:
-        storage_manager.delete_file(rel_path)
-        logger.info(f"Fiziksel dosya ve son referans silindi: {rel_path} (ID: {file_id})")
-    else:
-        logger.info(
-            f"Kullanıcı dosya kaydı ({file_id}) silindi. "
-            f"Fiziksel dosya ({rel_path}) diğer {other_refs_count} kullanıcı referansı nedeniyle korundu."
-        )
+            if content_rec:
+                content_rec.ref_count = remaining_file_records
+                if remaining_file_records <= 0:
+                    content_rec.status = "DELETING"
+                    db.delete(content_rec)
+                    db.commit()
+                    should_delete_physical = True
+                else:
+                    db.commit()
+            else:
+                # ContentRecord kaydı henüz bulunmayan dosyalar için güvenli fallback
+                if remaining_file_records == 0:
+                    should_delete_physical = True
+        finally:
+            principal.reset(token)
+
+        # 3. Yalnızca hiçbir aktif referans kalmadığında fiziksel dosyayı sil
+        if should_delete_physical:
+            storage_manager.delete_file(rel_path)
+            logger.info(f"Fiziksel dosya ve son referans silindi: {rel_path} (ID: {file_id})")
+        else:
+            logger.info(
+                f"Kullanıcı dosya kaydı ({file_id}) silindi. "
+                f"Fiziksel dosya ({rel_path}) diğer kullanıcı referansları nedeniyle korundu."
+            )
 
 
 @router.patch("/{file_id}", response_model=FileRecordResponse)

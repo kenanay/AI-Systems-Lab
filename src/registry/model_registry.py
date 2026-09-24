@@ -299,24 +299,35 @@ class ModelRegistry:
                         except Exception:
                             pass
 
-        # Inspect checkpoint config if training_config is missing vocab_size
-        final_training_config = dict(training_config) if training_config else {}
-        if 'vocab_size' not in final_training_config:
+        # Checkpoint dosyasının güvenliğini ve bütünlüğünü doğrula (weights_only=True)
+        try:
+            import torch
+            safe_classes = []
             try:
-                import torch
-                cp_data = torch.load(cp_path, map_location='cpu', weights_only=True)
-                if isinstance(cp_data, dict):
-                    cfg_data = cp_data.get('config')
-                    if isinstance(cfg_data, dict) and 'vocab_size' in cfg_data:
-                        final_training_config['vocab_size'] = cfg_data['vocab_size']
-                    elif hasattr(cfg_data, 'vocab_size'):
-                        final_training_config['vocab_size'] = getattr(cfg_data, 'vocab_size')
-                    if 'tokenizer_id' in cp_data and 'tokenizer_id' not in final_training_config:
-                        final_training_config['tokenizer_id'] = cp_data['tokenizer_id']
-                    if 'tokenizer_sha256' in cp_data and 'tokenizer_sha256' not in tokenizer_info:
-                        tokenizer_info['sha256'] = cp_data['tokenizer_sha256']
+                from src.model.gpt import GPTConfig
+                safe_classes.append(GPTConfig)
             except Exception:
                 pass
+            with torch.serialization.safe_globals(safe_classes):
+                cp_data = torch.load(cp_path, map_location='cpu', weights_only=True)
+        except Exception as e:
+            logger.error(f"Güvensiz veya bozuk checkpoint tescili engellendi: {e}")
+            raise ValueError(f"Güvenilmeyen veya bozuk checkpoint formatı (weights_only=True ile yüklenemedi): {e}")
+
+        # Inspect checkpoint config if training_config is missing vocab_size
+        final_training_config = dict(training_config) if training_config else {}
+        if isinstance(cp_data, dict):
+            cfg_data = cp_data.get('config')
+            if 'vocab_size' not in final_training_config:
+                if isinstance(cfg_data, dict) and 'vocab_size' in cfg_data:
+                    final_training_config['vocab_size'] = cfg_data['vocab_size']
+                elif hasattr(cfg_data, 'vocab_size'):
+                    final_training_config['vocab_size'] = getattr(cfg_data, 'vocab_size')
+            if 'tokenizer_id' in cp_data and 'tokenizer_id' not in final_training_config:
+                final_training_config['tokenizer_id'] = cp_data['tokenizer_id']
+            if 'tokenizer_sha256' in cp_data and 'tokenizer_sha256' not in tokenizer_info:
+                tokenizer_info['sha256'] = cp_data['tokenizer_sha256']
+
         if 'vocab_size' not in final_training_config and 'vocab_size' in tokenizer_info:
             final_training_config['vocab_size'] = tokenizer_info['vocab_size']
 

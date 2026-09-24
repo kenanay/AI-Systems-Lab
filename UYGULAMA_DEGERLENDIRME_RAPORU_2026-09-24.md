@@ -1,7 +1,13 @@
 # AI Systems Lab - Kapsamlı Uygulama Değerlendirme Raporu
 
+> [!WARNING]
+> **TARİHSEL ARŞİV BİLDİRİMİ (DEPRECATED / ARŞİV KAYDI):**  
+> Bu rapor, geliştirme sürecinin erken bir aşaması olan `425edf2` commit'ine ait anlık sistem durumunu yansıtmaktadır.  
+> Raporda geçen güvenlik açıkları, eksik testler ve entegrasyon açıkları sonraki sürümlerde (`1ac8483`, `a42ac2b` ve güncel commit serisi) tamamen giderilmiştir.  
+> Doğrulanmış en güncel güvenlik, veri bütünlüğü ve mimari durum için lütfen [AUDIT_RESOLUTION_REPORT.md](file:///Users/asel/Documents/AI%20Systems%20Lab/AUDIT_RESOLUTION_REPORT.md) dosyasını inceleyiniz.
+
 **Tarih:** 24 Eylül 2026  
-**Değerlendirme Türü:** Çalışan Uygulama İncelemesi  
+**Değerlendirme Türü:** Tarihsel Uygulama İncelemesi (Arşiv)  
 **Commit:** 425edf2aa26c751497653d0987916b39ffa6bc1f  
 **Test Ortamı:** macOS, localhost
 

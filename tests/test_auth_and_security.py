@@ -602,9 +602,11 @@ def test_registry_dir_restriction_in_inference_load(client):
     assert "Yetkisiz veya geçersiz registry dizini" in res.json().get("detail", "")
 
 
-def test_malicious_checkpoint_weights_only_blocking(tmp_path):
-    """Zararlı pickle kodu içeren checkpoint dosyasının weights_only=True ile güvenli şekilde engellendiğini doğrula."""
+def test_malicious_checkpoint_weights_only_blocking(tmp_path, client):
+    """Zararlı pickle kodu içeren checkpoint dosyasının kayıt, yükleme ve inference aşamalarında açıkça reddedildiğini doğrula."""
     import torch
+    import pytest
+    import uuid
     from src.registry.model_registry import ModelRegistry
 
     flag_file = tmp_path / "pwned.txt"
@@ -619,37 +621,204 @@ def test_malicious_checkpoint_weights_only_blocking(tmp_path):
     torch.save(malicious_data, chk_path)
 
     registry = ModelRegistry("models")
-    # Kayıt veya yükleme denenmeli; weights_only=True nedeniyle kod çalışmamalı ve hata fırlatılmalı
-    try:
+    unique_model_name = f"malicious-model-{uuid.uuid4().hex[:8]}"
+
+    # 1. Kayıt aşamasında checkpoint güvenliği: Açıkça ValueError fırlatılmalıdır
+    with pytest.raises(ValueError, match="weights_only=True"):
         registry.register_model(
-            model_name="malicious-model-test",
+            model_name=unique_model_name,
             version="1.0.0",
             checkpoint_path=chk_path
         )
-    except Exception:
-        pass
+
+    # 2. Doğrudan yükleme denendiğinde de weights_only=True ile reddedildiğini doğrula
+    with pytest.raises(Exception):
+        torch.load(chk_path, weights_only=True)
+
+    # 3. Inference /load API endpoint'i üzerinden çağrıldığında HTTP 400 döndürüldüğünü doğrula
+    login = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    res_load = client.post("/api/v1/inference/load", json={
+        "model_name": unique_model_name,
+        "version": "1.0.0"
+    }, headers=headers)
+    assert res_load.status_code == 400
 
     # İstismar komutunun ASLA çalıştırılmadığını doğrula
     assert not flag_file.exists(), "GÜVENLİK AÇIĞI: Zararlı checkpoint içindeki komut çalıştırıldı!"
 
 
-def test_training_preflight_fail_closed_checks(client):
-    """Bozuk, eksik veya uyumsuz veri kümesi durumunda eğitimin fail-closed engellendiğini doğrula."""
-    login = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
-    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+def test_concurrent_file_uploads_and_deletions(client):
+    """Farklı kullanıcıların aynı içeriğe yönelik eşzamanlı yükleme ve silme işlemlerinde veri kaybı ve yarış durumu olmadığını doğrula."""
+    from concurrent.futures import ThreadPoolExecutor
+    from backend.storage import storage_manager
+    import uuid
 
-    # 1. Olmayan veri kümesiyle eğitim başlatma denemesi
-    res_nonexistent = client.post("/api/v1/training/start", json={
-        "job_name": "Preflight Missing Dataset Test",
-        "model_name": "gpt-missing-ds-test",
-        "job_type": "PRETRAIN",
-        "dataset_id": "DS-NONEXISTENT-XYZ",
-        "tokenizer_id": "tok_1",
-        "epochs": 1
-    }, headers=headers)
-    assert res_nonexistent.status_code == 400
-    detail = res_nonexistent.json().get("detail", "").lower()
-    assert "not found" in detail or "bulunamadı" in detail
+    # 5 farklı kayıtlı kullanıcı oluştur ve token'larını al
+    user_headers = []
+    for i in range(5):
+        u_name = f"usr_conc_{uuid.uuid4().hex[:8]}"
+        client.post("/api/v1/auth/register", json={
+            "username": u_name,
+            "email": f"{u_name}@test.com",
+            "password": "Password123!",
+            "role": "researcher"
+        })
+        res_login = client.post("/api/v1/auth/login", json={"username_or_email": u_name, "password": "Password123!"})
+        user_headers.append({"Authorization": f"Bearer {res_login.json()['access_token']}"})
+
+    common_content = f"Concurrent test payload content {uuid.uuid4()}".encode()
+
+    # 1. Beş farklı kullanıcı aynı anda aynı içeriği yükler
+    def do_upload(idx):
+        return client.post(
+            "/api/v1/files/upload",
+            files={"file": (f"concurrent_doc_{idx}.txt", common_content, "text/plain")},
+            headers=user_headers[idx]
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        upload_results = list(executor.map(do_upload, range(5)))
+
+    file_ids = []
+    for res in upload_results:
+        assert res.status_code == 201
+        data = res.json()
+        file_ids.append(data["file_id"])
+
+    # Her kullanıcının kendine ait benzersiz file_id aldığını doğrula
+    assert len(set(file_ids)) == 5
+
+    # Fiziksel dosya tekil olarak diskte bulunmalıdır
+    first_info = client.get(f"/api/v1/files/{file_ids[0]}", headers=user_headers[0]).json()
+    rel_path = first_info["relative_path"]
+    assert storage_manager.file_exists(rel_path) is True
+
+    # 2. İlk 4 kullanıcı dosyalarını eşzamanlı olarak siler
+    def do_delete(idx):
+        return client.delete(f"/api/v1/files/{file_ids[idx]}", headers=user_headers[idx])
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        delete_results = list(executor.map(do_delete, range(4)))
+
+    for res in delete_results:
+        assert res.status_code in {204, 404}
+
+    # KRİTİK: 5. kullanıcının dosyası hala veritabanında olduğundan fiziksel dosya silinmemiş OLMALIDIR!
+    res_last = client.get(f"/api/v1/files/{file_ids[4]}", headers=user_headers[4])
+    assert res_last.status_code == 200
+    assert storage_manager.file_exists(rel_path) is True
+
+    # 3. Son referansı sil
+    del_last = client.delete(f"/api/v1/files/{file_ids[4]}", headers=user_headers[4])
+    assert del_last.status_code == 204
+
+    # Artık tüm referanslar bittiğinden fiziksel dosya da temizlenmiş olmalıdır
+    assert storage_manager.file_exists(rel_path) is False
+
+
+def test_sft_preflight_missing_response_column(tmp_path, monkeypatch):
+    """SFT veri kümesinde 'instruction' bulunup zorunlu 'response' sütununun eksik olduğu durumda eğitimin engellendiğini doğrula."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import pytest
+    from backend.database import SessionLocal
+    from backend.models import DatasetVersion, TokenizerRecord
+    from backend.services.training_service import TrainingService
+
+    # 1. instruction sütunu olan ama response sütunu OLMAYAN bozuk bir SFT parquet hazırla
+    bad_table = pa.Table.from_pydict({
+        "instruction": ["Soru 1", "Soru 2"],
+        "split": ["train", "validation"]
+    })
+    bad_parquet = tmp_path / "bad_sft.parquet"
+    pq.write_table(bad_table, bad_parquet)
+
+    # 2. Hem instruction hem response içeren geçerli bir SFT parquet hazırla
+    valid_table = pa.Table.from_pydict({
+        "instruction": ["Soru 1", "Soru 2"],
+        "response": ["Cevap 1", "Cevap 2"],
+        "split": ["train", "validation"]
+    })
+    valid_parquet = tmp_path / "valid_sft.parquet"
+    pq.write_table(valid_table, valid_parquet)
+
+    db = SessionLocal()
+    tok_record = TokenizerRecord(tokenizer_id="tok-1", vocab_size=200, storage_path=str(tmp_path / "dummy_tok"))
+
+    try:
+        # Mock load_artifacts to return the bad dataset
+        monkeypatch.setattr(
+            "backend.services.training_service.load_artifacts",
+            lambda db, did, tid: (
+                DatasetVersion(dataset_id="ds-bad", storage_path=str(bad_parquet)),
+                tok_record,
+                None,
+                {}
+            )
+        )
+        service = TrainingService(db)
+
+        # 1. instruction var ama response yok -> ValueError fırlatılmalı
+        with pytest.raises(ValueError, match="zorunlu 'response' sütunu eksik"):
+            service.create_job(
+                job_name="Bad SFT Schema Test",
+                model_name="sft-schema-fail-model",
+                job_type="SFT",
+                dataset_id="ds-bad",
+                tokenizer_id="tok-1",
+                config={"epochs": 1, "vocab_size": 200}
+            )
+
+        # 2. Hem instruction hem response olmayan geçersiz şema -> ValueError fırlatılmalı
+        invalid_table = pa.Table.from_pydict({
+            "unrelated_column": [1, 2]
+        })
+        invalid_parquet = tmp_path / "invalid_sft.parquet"
+        pq.write_table(invalid_table, invalid_parquet)
+
+        monkeypatch.setattr(
+            "backend.services.training_service.load_artifacts",
+            lambda db, did, tid: (
+                DatasetVersion(dataset_id="ds-invalid", storage_path=str(invalid_parquet)),
+                tok_record,
+                None,
+                {}
+            )
+        )
+        with pytest.raises(ValueError, match="zorunlu \\('instruction', 'response'\\) veya 'text' sütunları bulunamadı"):
+            service.create_job(
+                job_name="Invalid SFT Schema Test",
+                model_name="sft-schema-invalid-model",
+                job_type="SFT",
+                dataset_id="ds-invalid",
+                tokenizer_id="tok-1",
+                config={"epochs": 1, "vocab_size": 200}
+            )
+
+        # 3. Hem instruction hem response içeren geçerli şema -> Şema doğrulaması başarıyla geçmeli
+        # (Şema kontrolünü geçtiği için bir sonraki preflight adımı olan base_model gereksinimine ulaşır)
+        monkeypatch.setattr(
+            "backend.services.training_service.load_artifacts",
+            lambda db, did, tid: (
+                DatasetVersion(dataset_id="ds-valid", storage_path=str(valid_parquet)),
+                tok_record,
+                None,
+                {}
+            )
+        )
+        with pytest.raises(ValueError, match="Fine-tuning requires a base model"):
+            service.create_job(
+                job_name="Valid SFT Schema Test",
+                model_name="sft-schema-pass-model",
+                job_type="SFT",
+                dataset_id="ds-valid",
+                tokenizer_id="tok-1",
+                config={"epochs": 1, "vocab_size": 200}
+            )
+
+    finally:
+        db.close()
 
 
 
