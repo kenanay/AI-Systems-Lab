@@ -22,6 +22,45 @@ from backend.security.api_keys import generate_api_key, hash_api_key
 from backend.security.rate_limiter import SlidingWindowRateLimiter, global_rate_limiter
 
 
+def _multiprocess_upload(owner_id, payload, filename, result_queue):
+    """Worker used by the real multi-process content-store test."""
+    import asyncio
+    from io import BytesIO
+    from types import SimpleNamespace
+    from fastapi import UploadFile
+    from backend.database import SessionLocal
+    from backend.routers.files import upload_file
+
+    db = SessionLocal()
+    try:
+        response = asyncio.run(upload_file(
+            UploadFile(file=BytesIO(payload), filename=filename),
+            db,
+            SimpleNamespace(user_id=owner_id, role="researcher")
+        ))
+        result_queue.put(("ok", response.file_id))
+    except Exception as exc:
+        result_queue.put(("error", repr(exc)))
+    finally:
+        db.close()
+
+
+def _multiprocess_delete(file_id, owner_id, result_queue):
+    """Worker used by the real multi-process content-store test."""
+    from types import SimpleNamespace
+    from backend.database import SessionLocal
+    from backend.routers.files import delete_file
+
+    db = SessionLocal()
+    try:
+        delete_file(file_id, db, SimpleNamespace(user_id=owner_id, role="researcher"))
+        result_queue.put(("ok", file_id))
+    except Exception as exc:
+        result_queue.put(("error", repr(exc)))
+    finally:
+        db.close()
+
+
 @pytest.fixture(scope="function")
 def client() -> Generator[TestClient, None, None]:
     from backend.config import settings
@@ -856,6 +895,74 @@ def test_deferred_content_cleanup_retries_after_storage_failure(monkeypatch):
         db.commit()
         if storage_manager.file_exists(str(relative_path)):
             original_delete(str(relative_path))
+        db.close()
+
+
+def test_content_store_across_backend_processes():
+    """Validate shared-content refcounts with separate Python processes."""
+    import multiprocessing as mp
+    import uuid
+    from backend.database import SessionLocal
+    from backend.models import ContentRecord, FileRecord
+    from backend.storage import storage_manager
+
+    context = mp.get_context("spawn")
+    result_queue = context.Queue()
+    marker = uuid.uuid4().hex
+    payload = f"multi-process content store {marker}".encode()
+    owners = [f"mp-owner-{marker}-{index}" for index in range(4)]
+    processes = [
+        context.Process(
+            target=_multiprocess_upload,
+            args=(owner, payload, f"multi-{index}.txt", result_queue),
+        )
+        for index, owner in enumerate(owners)
+    ]
+
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(30)
+        assert process.exitcode == 0
+
+    upload_results = [result_queue.get(timeout=5) for _ in processes]
+    assert all(kind == "ok" for kind, _ in upload_results), upload_results
+    file_ids = [value for _, value in upload_results]
+
+    db = SessionLocal()
+    try:
+        records = db.query(FileRecord).filter(FileRecord.file_id.in_(file_ids)).all()
+        assert len(records) == len(file_ids)
+        assert len({record.relative_path for record in records}) == 1
+        relative_path = records[0].relative_path
+        content = db.query(ContentRecord).filter(ContentRecord.sha256 == records[0].sha256).one()
+        assert content.ref_count == len(file_ids)
+        assert content.status == "ACTIVE"
+    finally:
+        db.close()
+
+    delete_processes = [
+        context.Process(
+            target=_multiprocess_delete,
+            args=(file_id, owner, result_queue),
+        )
+        for file_id, owner in zip(file_ids, owners)
+    ]
+    for process in delete_processes:
+        process.start()
+    for process in delete_processes:
+        process.join(30)
+        assert process.exitcode == 0
+
+    delete_results = [result_queue.get(timeout=5) for _ in delete_processes]
+    assert all(kind == "ok" for kind, _ in delete_results), delete_results
+
+    db = SessionLocal()
+    try:
+        assert db.query(FileRecord).filter(FileRecord.file_id.in_(file_ids)).count() == 0
+        assert db.query(ContentRecord).filter(ContentRecord.sha256 == content.sha256).first() is None
+        assert storage_manager.file_exists(relative_path) is False
+    finally:
         db.close()
 
 

@@ -86,4 +86,4 @@ Tüm test paketleri yerel ortamda ve CI üzerinde tam izolasyon altında çalı�
   - **16 Test Paketi / 83 Test Başarılı** (0 Hata, %100 Başarı Oranı)
   - Süre: ~2.8 saniye
 * **Eşzamanlılık ve Güvenlik:**
-  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup ve interleaving senaryoları da eklenmiştir.
+  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup, interleaving ve ayrı Python process senaryoları da eklenmiştir. Güncel CI sonucu beklenmelidir.
