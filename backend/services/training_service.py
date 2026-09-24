@@ -104,25 +104,34 @@ class TrainingService:
         if config.get("vocab_size") and config["vocab_size"] < tok_vocab:
             raise ValueError(f"Model sözlük boyutu ({config['vocab_size']}), tokenizer sözlük boyutundan ({tok_vocab}) küçük olamaz!")
 
-        # Preflight Kontrolü: Derlenmiş veri kümesindeki token kimliklerinin model sınırları içinde kaldığını doğrula
-        if ds.storage_path and Path(ds.storage_path).exists():
-            try:
-                import pyarrow.parquet as pq
-                schema = pq.read_schema(ds.storage_path)
-                if "token_ids" in schema.names:
-                    import pandas as pd
-                    df = pd.read_parquet(ds.storage_path, columns=["token_ids"])
-                    for token_list in df["token_ids"].dropna():
-                        if len(token_list) > 0:
-                            max_id = max(token_list)
-                            if max_id >= model_vocab:
-                                raise ValueError(f"Derlenmiş veri kümesindeki maksimum token kimliği ({max_id}), model sözlük sınırını ({model_vocab}) aşıyor!")
-            except ValueError as e:
-                if "sözlük sınırını" in str(e):
-                    raise e
-                logger.warning(f"Could not check parquet token boundaries: {e}")
-            except Exception as e:
-                logger.warning(f"Could not check parquet token boundaries: {e}")
+        # Preflight Kontrolü: Veri kümesi dosyasının diskte mevcut olduğunu doğrula (Fail-Closed)
+        if not ds.storage_path or not Path(ds.storage_path).exists():
+            raise ValueError(f"Eğitim veri kümesi dosyası diskte bulunamadı: {getattr(ds, 'storage_path', None)}")
+
+        # Preflight Kontrolü: Parquet bütünlüğü ve token kimliklerinin model sınırları içinde kaldığını doğrula (Fail-Closed)
+        try:
+            import pyarrow.parquet as pq
+            schema = pq.read_schema(ds.storage_path)
+            if job_type == 'PRETRAIN':
+                if "token_ids" not in schema.names:
+                    raise ValueError("Pretrain veri kümesinde zorunlu 'token_ids' sütunu bulunamadı.")
+            elif job_type in {'FULL_SFT', 'LORA_SFT'}:
+                if "instruction" not in schema.names and "token_ids" not in schema.names:
+                    raise ValueError("SFT veri kümesinde zorunlu 'instruction' veya 'token_ids' sütunu bulunamadı.")
+
+            if "token_ids" in schema.names:
+                import pandas as pd
+                df = pd.read_parquet(ds.storage_path, columns=["token_ids"])
+                for token_list in df["token_ids"].dropna():
+                    if len(token_list) > 0:
+                        max_id = max(token_list)
+                        if max_id >= model_vocab:
+                            raise ValueError(f"Derlenmiş veri kümesindeki maksimum token kimliği ({max_id}), model sözlük sınırını ({model_vocab}) aşıyor!")
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Veri kümesi dosyası bozuk veya okunamıyor: {e}")
+            raise ValueError(f"Veri kümesi dosyası okunamıyor veya bozuk: {str(e)}")
 
         # Preflight Manifesti: Artefakt sürümlerini ve özetlerini dondur
         config["dataset_version"] = getattr(ds, "version", None) or ds.dataset_id
@@ -300,7 +309,27 @@ class TrainingService:
         start_epoch, start_batch, global_step = 0, 0, 0
         history = []
         if cfg.get('resume'):
-            state = torch.load(resume_path, map_location='cpu', weights_only=False)
+            safe_types = [np.ndarray, np.dtype]
+            if hasattr(np, "dtypes") and hasattr(np.dtypes, "UInt32DType"):
+                safe_types.append(np.dtypes.UInt32DType)
+            try:
+                import numpy._core.multiarray as m1
+                safe_types.append(m1._reconstruct)
+            except Exception:
+                pass
+            try:
+                import numpy.core.multiarray as m2
+                safe_types.append(m2._reconstruct)
+            except Exception:
+                pass
+
+            try:
+                with torch.serialization.safe_globals(safe_types):
+                    state = torch.load(resume_path, map_location='cpu', weights_only=True)
+            except Exception as e:
+                logger.error(f"Güvensiz veya bozuk resume checkpoint dosyası: {e}")
+                raise ValueError(f"Resume checkpoint dosyası güvenli bir şekilde yüklenemedi: {e}")
+
             if state['lineage'] != fingerprints:
                 raise ValueError('Resume artifact lineage mismatch')
             model.load_state_dict(state['model_state_dict'])

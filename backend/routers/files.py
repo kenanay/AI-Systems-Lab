@@ -18,6 +18,7 @@ from backend.security.dependencies import (
     filter_by_owner
 )
 from backend.storage import storage_manager
+from src.security.context import principal, Principal
 from backend.utils import (
     generate_file_id,
     detect_mime_type,
@@ -142,7 +143,12 @@ async def upload_file(
     
     # 7. Fiziksel içerik kontrolü ve kaydetme (Content Store deduplication)
     # Başka bir kullanıcı veya demo veri aynı fiziksel içeriğe sahipse diskte tekrar oluşturma, fiziksel yolu paylaş
-    content_existing = db.query(FileRecord).filter(FileRecord.sha256 == sha256).first()
+    token = principal.set(Principal("system", "admin"))
+    try:
+        content_existing = db.query(FileRecord).filter(FileRecord.sha256 == sha256).first()
+    finally:
+        principal.reset(token)
+
     if content_existing and storage_manager.file_exists(content_existing.relative_path):
         relative_path = content_existing.relative_path
         logger.info(f"Fiziksel içerik havuzundan mevcut dosya yolu yeniden kullanıldı: {relative_path}")
@@ -290,14 +296,33 @@ def delete_file(
             detail="Bu dosyayı silme yetkiniz bulunmuyor."
         )
     
-    # Fiziksel dosyayı sil
-    storage_manager.delete_file(file_record.relative_path)
-    
+    # 1. Başka bir FileRecord kaydının aynı fiziksel dosyayı (relative_path veya sha256) kullanıp kullanmadığını kontrol et
+    rel_path = file_record.relative_path
+    file_sha = file_record.sha256
+
     # Database kaydını sil
     db.delete(file_record)
     db.commit()
-    
-    logger.info(f"Dosya silindi: {file_id}")
+
+    # 2. Fiziksel dosya için sistem genelindeki kalan referans sayısını kontrol et
+    token = principal.set(Principal("system", "admin"))
+    try:
+        other_refs_count = db.query(FileRecord).filter(
+            (FileRecord.relative_path == rel_path) |
+            (FileRecord.sha256 == file_sha)
+        ).count()
+    finally:
+        principal.reset(token)
+
+    # 3. Yalnızca başka hiçbir aktif referans kalmadığında fiziksel dosyayı sil
+    if other_refs_count == 0:
+        storage_manager.delete_file(rel_path)
+        logger.info(f"Fiziksel dosya ve son referans silindi: {rel_path} (ID: {file_id})")
+    else:
+        logger.info(
+            f"Kullanıcı dosya kaydı ({file_id}) silindi. "
+            f"Fiziksel dosya ({rel_path}) diğer {other_refs_count} kullanıcı referansı nedeniyle korundu."
+        )
 
 
 @router.patch("/{file_id}", response_model=FileRecordResponse)

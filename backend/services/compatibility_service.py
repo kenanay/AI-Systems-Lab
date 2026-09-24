@@ -103,7 +103,7 @@ class CompatibilityService:
                     if (not m_vocab or not m_tok_id) and loaded.get("checkpoint_path"):
                         try:
                             import torch
-                            cp_data = torch.load(loaded["checkpoint_path"], map_location="cpu", weights_only=False)
+                            cp_data = torch.load(loaded["checkpoint_path"], map_location="cpu", weights_only=True)
                             if isinstance(cp_data, dict):
                                 cfg_obj = cp_data.get("config")
                                 if not m_vocab and isinstance(cfg_obj, dict):

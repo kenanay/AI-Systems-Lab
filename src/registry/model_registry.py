@@ -304,7 +304,7 @@ class ModelRegistry:
         if 'vocab_size' not in final_training_config:
             try:
                 import torch
-                cp_data = torch.load(cp_path, map_location='cpu', weights_only=False)
+                cp_data = torch.load(cp_path, map_location='cpu', weights_only=True)
                 if isinstance(cp_data, dict):
                     cfg_data = cp_data.get('config')
                     if isinstance(cfg_data, dict) and 'vocab_size' in cfg_data:
@@ -478,9 +478,25 @@ class ModelRegistry:
         if load_weights:
             logger.info(f"Loading weights: {model_name} v{version}")
             try:
-                checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-            except TypeError:
-                checkpoint = torch.load(checkpoint_path, map_location='cpu')
+                checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=True)
+            except Exception as e:
+                # Fallback to allowlist safe classes if needed
+                safe_classes = []
+                try:
+                    from src.model.gpt import GPTConfig
+                    safe_classes.append(GPTConfig)
+                except Exception:
+                    pass
+                if hasattr(torch.serialization, "safe_globals") and safe_classes:
+                    try:
+                        with torch.serialization.safe_globals(safe_classes):
+                            checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=True)
+                    except Exception as inner_e:
+                        logger.error(f"Güvensiz checkpoint engellendi: {inner_e}")
+                        raise ValueError(f"Güvenilmeyen veya bozuk checkpoint formatı (weights_only=True engeli): {e}")
+                else:
+                    logger.error(f"Güvensiz checkpoint engellendi: {e}")
+                    raise ValueError(f"Güvenilmeyen veya bozuk checkpoint formatı (weights_only=True engeli): {e}")
             result['state_dict'] = checkpoint.get('model_state_dict', checkpoint)
             result['full_checkpoint'] = checkpoint
         

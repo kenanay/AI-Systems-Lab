@@ -164,7 +164,7 @@ class StorageManager:
         Path traversal girişimlerini engeller.
         
         Args:
-            relative_path: Dataset root'a göre relative path
+            relative_path: Dataset root veya raw path'e göre relative path
             
         Returns:
             Absolute file path
@@ -173,6 +173,15 @@ class StorageManager:
             PermissionError: Path traversal tespit edilirse
         """
         data_root = settings.data_root.resolve()
+        raw_root = self.raw_path.resolve()
+
+        # Önce raw_path altında var mı kontrol et (save_file göreli yolunu raw_path'e göre döner)
+        candidate_raw = (raw_root / relative_path).resolve()
+        if not candidate_raw.is_relative_to(data_root):
+            raise PermissionError("Path traversal detected outside data directory")
+        if candidate_raw.exists():
+            return candidate_raw
+
         target = (data_root / relative_path).resolve()
         if not target.is_relative_to(data_root):
             raise PermissionError("Path traversal detected outside data directory")

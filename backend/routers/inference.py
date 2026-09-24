@@ -149,14 +149,14 @@ def load_model(
     Belirtilen modeli belleğe yükler.
     Model ve tokenizer uyumluluğunu sunucu kayıtlarından ZORUNLU olarak doğrular.
     """
-    # 1. Güvenli registry dizini belirle (istemciden gelen kontrolsüz yol manipülasyonunu engelle)
+    # 1. Sunucu tarafından sınırlandırılmış güvenli registry kökü
+    ALLOWED_REGISTRIES = {"models"}
+    if request.registry_dir and request.registry_dir not in ALLOWED_REGISTRIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Yetkisiz veya geçersiz registry dizini: '{request.registry_dir}'. Yalnızca sunucu tarafından yönetilen 'models' dizinine izin verilir."
+        )
     safe_registry_dir = "models"
-    if request.registry_dir and request.registry_dir != "models":
-        from pathlib import Path
-        reg_path = Path(request.registry_dir)
-        if ".." in reg_path.parts or reg_path.is_absolute():
-            raise HTTPException(status_code=400, detail="Geçersiz veya güvensiz registry_dir parametresi")
-        safe_registry_dir = str(reg_path)
 
     # 2. ZORUNLU model ve tokenizer doğrulama: tokenizer_id belirtilmemiş olsa dahi
     # modelin sunucudaki kayıtlı metadata'sı ve ilişkili tokenizer'ı doğrulanır.

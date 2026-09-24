@@ -539,5 +539,118 @@ def test_file_upload_user_isolation_and_deduplication(client):
     assert data_a_dup["is_duplicate"] is True
 
 
+def test_shared_physical_file_lifecycle_and_deletion(client):
+    """Kullanıcı A dosyasını sildiğinde, aynı içeriği kullanan Kullanıcı B'nin fiziksel dosyasının silinmediğini doğrula."""
+    from backend.storage import storage_manager
+
+    login_a = client.post("/api/v1/auth/login", json={"username_or_email": "researcher", "password": "researcher123"})
+    headers_a = {"Authorization": f"Bearer {login_a.json()['access_token']}"}
+    login_b = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    headers_b = {"Authorization": f"Bearer {login_b.json()['access_token']}"}
+
+    import uuid
+    content = f"Shared content for deletion test {uuid.uuid4()}".encode()
+
+    # 1. Kullanıcı A ve Kullanıcı B aynı içeriği yükler
+    res_a = client.post("/api/v1/files/upload", files={"file": ("doc_a.txt", content, "text/plain")}, headers=headers_a)
+    assert res_a.status_code == 201
+    file_id_a = res_a.json()["file_id"]
+
+    res_b = client.post("/api/v1/files/upload", files={"file": ("doc_b.txt", content, "text/plain")}, headers=headers_b)
+    assert res_b.status_code == 201
+    file_id_b = res_b.json()["file_id"]
+
+    # File details üzerinden relative_path al
+    info_a = client.get(f"/api/v1/files/{file_id_a}", headers=headers_a).json()
+    rel_path = info_a["relative_path"]
+
+    # Fiziksel dosya diskte var olmalıdır
+    assert storage_manager.file_exists(rel_path) is True
+
+    # 2. Kullanıcı A kendi dosyasını siler
+    del_a = client.delete(f"/api/v1/files/{file_id_a}", headers=headers_a)
+    assert del_a.status_code == 204
+
+    # Kullanıcı A'nın kaydı silinmiş olmalıdır (404)
+    get_a = client.get(f"/api/v1/files/{file_id_a}", headers=headers_a)
+    assert get_a.status_code == 404
+
+    # KRİTİK: Kullanıcı B'nin dosyası ve diskteki fiziksel dosya HALA VAR OLMALIDIR!
+    get_b = client.get(f"/api/v1/files/{file_id_b}", headers=headers_b)
+    assert get_b.status_code == 200
+    assert storage_manager.file_exists(rel_path) is True
+
+    # 3. Kullanıcı B de kendi dosyasını sildiğinde fiziksel dosya artık diskten silinmelidir
+    del_b = client.delete(f"/api/v1/files/{file_id_b}", headers=headers_b)
+    assert del_b.status_code == 204
+
+    # Artık hiçbir referans kalmadığından fiziksel dosya da silinmiş olmalıdır
+    assert storage_manager.file_exists(rel_path) is False
+
+
+def test_registry_dir_restriction_in_inference_load(client):
+    """İstemcinin 'models' dışında yetkisiz bir registry_dir belirtmesinin engellendiğini doğrula."""
+    login = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    # İstemci keyfi bir sistem dizini belirttiğinde HTTP 400 ile reddedilmeli
+    res = client.post("/api/v1/inference/load", json={
+        "model_name": "test_model",
+        "registry_dir": "arbitrary_custom_dir"
+    }, headers=headers)
+    assert res.status_code == 400
+    assert "Yetkisiz veya geçersiz registry dizini" in res.json().get("detail", "")
+
+
+def test_malicious_checkpoint_weights_only_blocking(tmp_path):
+    """Zararlı pickle kodu içeren checkpoint dosyasının weights_only=True ile güvenli şekilde engellendiğini doğrula."""
+    import torch
+    from src.registry.model_registry import ModelRegistry
+
+    flag_file = tmp_path / "pwned.txt"
+
+    class Exploit:
+        def __reduce__(self):
+            import os
+            return (os.system, (f"touch {flag_file}",))
+
+    malicious_data = {"payload": Exploit()}
+    chk_path = tmp_path / "malicious.pt"
+    torch.save(malicious_data, chk_path)
+
+    registry = ModelRegistry("models")
+    # Kayıt veya yükleme denenmeli; weights_only=True nedeniyle kod çalışmamalı ve hata fırlatılmalı
+    try:
+        registry.register_model(
+            model_name="malicious-model-test",
+            version="1.0.0",
+            checkpoint_path=chk_path
+        )
+    except Exception:
+        pass
+
+    # İstismar komutunun ASLA çalıştırılmadığını doğrula
+    assert not flag_file.exists(), "GÜVENLİK AÇIĞI: Zararlı checkpoint içindeki komut çalıştırıldı!"
+
+
+def test_training_preflight_fail_closed_checks(client):
+    """Bozuk, eksik veya uyumsuz veri kümesi durumunda eğitimin fail-closed engellendiğini doğrula."""
+    login = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    # 1. Olmayan veri kümesiyle eğitim başlatma denemesi
+    res_nonexistent = client.post("/api/v1/training/start", json={
+        "job_name": "Preflight Missing Dataset Test",
+        "model_name": "gpt-missing-ds-test",
+        "job_type": "PRETRAIN",
+        "dataset_id": "DS-NONEXISTENT-XYZ",
+        "tokenizer_id": "tok_1",
+        "epochs": 1
+    }, headers=headers)
+    assert res_nonexistent.status_code == 400
+    detail = res_nonexistent.json().get("detail", "").lower()
+    assert "not found" in detail or "bulunamadı" in detail
+
+
 
 
