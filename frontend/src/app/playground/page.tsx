@@ -374,35 +374,37 @@ export default function PlaygroundPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
-      {/* Top Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center space-x-3">
-          <Link href="/" className="text-xl font-bold text-indigo-600 hover:opacity-80 transition">
-            🤖 Local AI Research Lab
-          </Link>
-          <span className="text-slate-300">/</span>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-lg font-bold text-slate-800">Model Playground &amp; Decoding Lab</h1>
-            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs font-semibold">
-              v2.0
-            </span>
+    <div className="min-h-[calc(100vh-4rem)] bg-slate-50 text-slate-900 pb-16">
+      {/* Top Header (sticks below global navbar at top-16) */}
+      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-16 z-30 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Link href="/" className="text-lg font-bold text-indigo-600 hover:opacity-80 transition-opacity">
+              🤖 Local AI Lab
+            </Link>
+            <span className="text-slate-300">/</span>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-base sm:text-lg font-bold text-slate-800">Model Playground &amp; Decoding Lab</h1>
+              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs font-semibold">
+                v2.0
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center space-x-3">
-          <Link
-            href="/attention-lab"
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition flex items-center space-x-1"
-          >
-            <Activity className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Attention Lab</span>
-          </Link>
-          <Link
-            href="/training"
-            className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold transition"
-          >
-            🏋️ Eğitim Stüdyosu →
-          </Link>
+          <div className="flex items-center space-x-3">
+            <Link
+              href="/attention-lab"
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition flex items-center space-x-1"
+            >
+              <Activity className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Attention Lab</span>
+            </Link>
+            <Link
+              href="/training"
+              className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold transition"
+            >
+              🏋️ Eğitim Stüdyosu →
+            </Link>
+          </div>
         </div>
       </header>
 

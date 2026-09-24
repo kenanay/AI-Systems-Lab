@@ -159,23 +159,25 @@ export default function TrainingPage() {
   const chartData = activeJob?.metrics || [];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
-      {/* Top Navigation */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center space-x-3">
-          <Link href="/" className="text-xl font-bold text-indigo-600 hover:opacity-80">
-            🤖 Local AI Research Lab
-          </Link>
-          <span className="text-slate-300">/</span>
-          <h1 className="text-lg font-semibold text-slate-800">Training Studio (Eğitim Stüdyosu)</h1>
-        </div>
-        <div className="flex items-center space-x-3">
-          <Link
-            href="/playground"
-            className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-medium transition"
-          >
-            💬 Model Playground'a Git →
-          </Link>
+    <div className="min-h-[calc(100vh-4rem)] bg-slate-50 text-slate-900 pb-16">
+      {/* Top Navigation Bar (sticks below global navbar at top-16) */}
+      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-16 z-30 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Link href="/" className="text-lg font-bold text-indigo-600 hover:opacity-80 transition-opacity">
+              🤖 Local AI Lab
+            </Link>
+            <span className="text-slate-300">/</span>
+            <h1 className="text-base sm:text-lg font-semibold text-slate-800">Training Studio (Eğitim Stüdyosu)</h1>
+          </div>
+          <div className="flex items-center space-x-3">
+            <Link
+              href="/playground"
+              className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-medium transition"
+            >
+              💬 Model Playground'a Git →
+            </Link>
+          </div>
         </div>
       </header>
 
