@@ -31,6 +31,9 @@ class RotaryEmbedding(nn.Module):
     
     Query ve Key vektörlerinin ardışık çift boyutlarını pozisyona bağlı açıyla döndürür.
     """
+    inv_freq: torch.Tensor
+    cos_cached: torch.Tensor
+    sin_cached: torch.Tensor
 
     def __init__(self, dim: int, max_seq_len: int = 4096, base: float = 10000.0):
         super().__init__()

@@ -266,3 +266,74 @@ def test_unauthenticated_requests(client: TestClient):
     # Geçersiz token
     res_bad_tok = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer bad.token.here"})
     assert res_bad_tok.status_code == 401
+
+
+def test_row_level_data_isolation_between_users(client: TestClient):
+    """
+    Doğrulama: Kullanıcılar arası veri izolasyonu ve kayıt düzeyinde yetkilendirme (P1).
+    - Kullanıcı A'nın yüklediği dosya/dokümana Kullanıcı B erişemez (403 Forbidden).
+    - Admin kullanıcı tüm kaynaklara erişebilir.
+    """
+    global_rate_limiter.reset()
+    import time
+    ts = int(time.time() * 1000)
+
+    # 1. Kullanıcı A kaydı ve girişi
+    uname_a = f"researcher_a_{ts}"
+    client.post("/api/v1/auth/register", json={
+        "username": uname_a,
+        "email": f"{uname_a}@example.com",
+        "password": "Password123!",
+        "role": "researcher"
+    })
+    res_a = client.post("/api/v1/auth/login", json={"username_or_email": uname_a, "password": "Password123!"})
+    token_a = res_a.json()["access_token"]
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    # 2. Kullanıcı B kaydı ve girişi
+    uname_b = f"researcher_b_{ts}"
+    client.post("/api/v1/auth/register", json={
+        "username": uname_b,
+        "email": f"{uname_b}@example.com",
+        "password": "Password123!",
+        "role": "researcher"
+    })
+    res_b = client.post("/api/v1/auth/login", json={"username_or_email": uname_b, "password": "Password123!"})
+    token_b = res_b.json()["access_token"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    # Admin token
+    res_admin = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
+    admin_token = res_admin.json()["access_token"]
+    headers_admin = {"Authorization": f"Bearer {admin_token}"}
+
+    # 3. Kullanıcı A bir dosya yükler
+    upload_res = client.post(
+        "/api/v1/files/upload",
+        files={"file": (f"user_a_private_{ts}.txt", b"Gizli Arastirma Verisi A", "text/plain")},
+        headers=headers_a
+    )
+    assert upload_res.status_code == 201
+    file_id_a = upload_res.json()["file_id"]
+
+    # 4. Kullanıcı A kendi dosyasını görebilir
+    get_a = client.get(f"/api/v1/files/{file_id_a}", headers=headers_a)
+    assert get_a.status_code == 200
+
+    # 5. Kullanıcı B, Kullanıcı A'nın dosyasını listeleyemez ve okuyamaz (403 veya 404)
+    list_b = client.get("/api/v1/files/", headers=headers_b)
+    assert list_b.status_code == 200
+    b_file_ids = [f["file_id"] for f in list_b.json()]
+    assert file_id_a not in b_file_ids
+
+    get_b = client.get(f"/api/v1/files/{file_id_a}", headers=headers_b)
+    assert get_b.status_code in (403, 404)
+
+    # 6. Kullanıcı B bağlı dokümanları sorgulamaya kalktığında da 403 veya 404 almalıdır
+    doc_b = client.get(f"/api/v1/datasets/documents/by-file/{file_id_a}", headers=headers_b)
+    assert doc_b.status_code in (403, 404)
+
+    # 7. Admin Kullanıcı A'nın dosyasına erişebilir
+    get_admin = client.get(f"/api/v1/files/{file_id_a}", headers=headers_admin)
+    assert get_admin.status_code == 200
+

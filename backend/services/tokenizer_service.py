@@ -12,18 +12,23 @@ Bu modül tokenizer training pipeline'ını yönetir:
 Job-based architecture kullanılır çünkü training uzun sürebilir.
 """
 
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Any
 from pathlib import Path
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import json
 
 from src.tokenizer.bpe import BPETokenizer
-from backend.models import FileRecord, Document, TokenizerJob, TokenizerRecord
+from backend.models import FileRecord, DocumentRecord, TokenizerJob, TokenizerRecord
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    """Timezone-aware current UTC datetime."""
+    return datetime.now(timezone.utc)
 
 
 class TokenizerTrainingService:
@@ -86,7 +91,7 @@ class TokenizerTrainingService:
             job_name=job_name,
             status="PENDING",
             config=config,
-            created_at=datetime.utcnow()
+            created_at=utc_now()
         )
         
         self.db.add(job)
@@ -133,13 +138,14 @@ class TokenizerTrainingService:
         if not job:
             raise ValueError(f"Job bulunamadı: {job_id}")
         
-        if job.status not in ["PENDING", "PAUSED"]:
-            raise ValueError(f"Job geçersiz durumda: {job.status}")
+        job_status = str(job.status)
+        if job_status not in ["PENDING", "PAUSED"]:
+            raise ValueError(f"Job geçersiz durumda: {job_status}")
         
         try:
             # Job başlat
             job.status = "RUNNING"
-            job.started_at = datetime.utcnow()
+            job.started_at = utc_now()
             job.progress = 0.0
             self.db.commit()
             
@@ -166,6 +172,7 @@ class TokenizerTrainingService:
             
             # Progress callback wrapper
             def training_progress(current: int, total: int):
+                assert job is not None
                 # 0.1 - 0.9 arası progress (0.1 text collection, 0.9 training)
                 progress = 0.1 + (current / total) * 0.8
                 job.progress = progress
@@ -189,12 +196,14 @@ class TokenizerTrainingService:
             
             # Step 4: TokenizerRecord oluştur
             stats = tokenizer.get_vocab_stats()
-            started = job.started_at or datetime.utcnow()
-            duration = (datetime.utcnow() - started).total_seconds()
+            started = job.started_at or utc_now()
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            duration = max(0.0, (utc_now() - started).total_seconds())
             
             tokenizer_record = TokenizerRecord(
                 tokenizer_id=tokenizer_id,
-                name=job.job_name,
+                name=str(job.job_name),
                 tokenizer_type="BPE",
                 version=tokenizer.VERSION,
                 vocab_size=stats["vocab_size"],
@@ -202,12 +211,12 @@ class TokenizerTrainingService:
                 special_tokens=job.config.get("special_tokens"),
                 storage_path=str(output_path),
                 training_config=job.config,
-                source_job_id=job.job_id,
+                source_job_id=str(job.job_id),
                 source_dataset_ids=job.config.get("dataset_ids", []),
                 source_file_ids=job.config.get("file_ids", []),
                 num_training_documents=len(texts),
                 training_duration_seconds=duration,
-                training_completed_at=datetime.utcnow(),
+                training_completed_at=utc_now(),
                 is_active=True
             )
             
@@ -215,7 +224,7 @@ class TokenizerTrainingService:
             
             # Step 5: Job tamamla
             job.status = "COMPLETED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             job.progress = 1.0
             
             res_meta = dict(job.result_metadata or {})
@@ -243,7 +252,7 @@ class TokenizerTrainingService:
             # Hata durumu
             job.status = "FAILED"
             job.error = str(e)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             self.db.commit()
             
             logger.error(f"Training job failed: {job_id} - {e}")
@@ -273,8 +282,8 @@ class TokenizerTrainingService:
                 ).all()
             }
             # Document'lerden text al
-            documents = self.db.query(Document).filter(
-                Document.file_id.in_(file_ids)
+            documents = self.db.query(DocumentRecord).filter(
+                DocumentRecord.file_id.in_(file_ids)
             ).all()
             
             for doc in documents:
@@ -397,9 +406,10 @@ class TokenizerTrainingService:
         if not job:
             return False
         
-        if job.status in ["RUNNING", "PENDING"]:
+        job_status = str(job.status)
+        if job_status in ["RUNNING", "PENDING"]:
             job.status = "CANCELLED"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             self.db.commit()
             
             logger.info(f"Job cancelled: {job_id}")
@@ -512,7 +522,7 @@ class TokenizerTrainingService:
         
         # Usage stats güncelle
         tokenizer_record.usage_count += 1
-        tokenizer_record.last_used_at = datetime.utcnow()
+        tokenizer_record.last_used_at = utc_now()
         self.db.commit()
         
         logger.info(f"Tokenizer loaded: {tokenizer_id}")
@@ -553,7 +563,7 @@ class TokenizerTrainingService:
         if is_active is not None:
             tokenizer.is_active = is_active
         
-        tokenizer.updated_at = datetime.utcnow()
+        tokenizer.updated_at = utc_now()
         self.db.commit()
         
         logger.info(f"Tokenizer metadata updated: {tokenizer_id}")
@@ -592,7 +602,7 @@ class TokenizerTrainingService:
         else:
             # Soft delete - sadece deactivate et
             tokenizer.is_active = False
-            tokenizer.updated_at = datetime.utcnow()
+            tokenizer.updated_at = utc_now()
             self.db.commit()
             logger.info(f"Tokenizer deactivated: {tokenizer_id}")
         

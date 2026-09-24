@@ -6,7 +6,7 @@ DatasetVersion ve CompilationJob için SQLAlchemy modelleri.
 """
 
 from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, JSON
-from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.orm import relationship, Mapped, mapped_column, declarative_mixin
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 import uuid
@@ -19,6 +19,7 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+@declarative_mixin
 class OwnedResource:
     owner_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
 

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "local-ai-research-lab"
+name = "ai-systems-lab"
 version = "1.2.0"
 description = "Local-First AI Systems Research & Learning Platform"
 readme = "README.md"
@@ -68,10 +68,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kenanay/local-ai-research-lab"
-Documentation = "https://github.com/kenanay/local-ai-research-lab/docs"
-Repository = "https://github.com/kenanay/local-ai-research-lab"
-Issues = "https://github.com/kenanay/local-ai-research-lab/issues"
+Homepage = "https://github.com/kenanay/AI-Systems-Lab"
+Documentation = "https://github.com/kenanay/AI-Systems-Lab/docs"
+Repository = "https://github.com/kenanay/AI-Systems-Lab"
+Issues = "https://github.com/kenanay/AI-Systems-Lab/issues"
 
 [tool.setuptools]
 packages = ["src", "backend"]

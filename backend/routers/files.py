@@ -11,7 +11,12 @@ import logging
 
 from backend.database import get_db
 from backend.models import FileRecord, DocumentRecord, UserRecord
-from backend.security.dependencies import get_current_user, require_role
+from backend.security.dependencies import (
+    get_current_user,
+    require_role,
+    check_resource_access,
+    filter_by_owner
+)
 from backend.storage import storage_manager
 from backend.utils import (
     generate_file_id,
@@ -147,6 +152,7 @@ async def upload_file(
     # 8. Database kaydı
     file_record = FileRecord(
         file_id=file_id,
+        owner_id=str(current_user.user_id) if current_user and current_user.user_id else None,
         original_name=filename,
         relative_path=str(relative_path),
         mime_type=mime_type,
@@ -194,7 +200,8 @@ def list_files(
     Returns:
         FileRecord listesi
     """
-    files = db.query(FileRecord)\
+    query = filter_by_owner(db.query(FileRecord), FileRecord, current_user, allow_unowned=True)
+    files = query\
         .order_by(FileRecord.created_at.desc())\
         .offset(skip)\
         .limit(limit)\
@@ -220,7 +227,7 @@ def get_file(
         FileRecord
         
     Raises:
-        HTTPException: Dosya bulunamazsa
+        HTTPException: Dosya bulunamazsa veya yetki yoksa
     """
     file_record = db.query(FileRecord).filter(FileRecord.file_id == file_id).first()
     
@@ -228,6 +235,12 @@ def get_file(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dosya bulunamadı: {file_id}"
+        )
+    
+    if not check_resource_access(file_record, current_user, allow_unowned=True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu dosyaya erişim yetkiniz bulunmuyor."
         )
     
     return file_record
@@ -249,7 +262,7 @@ def delete_file(
         db: Database session
         
     Raises:
-        HTTPException: Dosya bulunamazsa
+        HTTPException: Dosya bulunamazsa veya yetki yoksa
     """
     file_record = db.query(FileRecord).filter(FileRecord.file_id == file_id).first()
     
@@ -257,6 +270,12 @@ def delete_file(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dosya bulunamadı: {file_id}"
+        )
+    
+    if not check_resource_access(file_record, current_user, allow_unowned=False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu dosyayı silme yetkiniz bulunmuyor."
         )
     
     # Fiziksel dosyayı sil
@@ -301,6 +320,12 @@ def update_file_metadata(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Dosya bulunamadı: {file_id}"
+        )
+    
+    if not check_resource_access(file_record, current_user, allow_unowned=False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu dosya metadatasını güncelleme yetkiniz bulunmuyor."
         )
     
     # Güncelleme verilerini kontrol et (en az bir alan dolu olmalı)

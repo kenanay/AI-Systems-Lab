@@ -15,6 +15,12 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { useAuth } from '@/lib/auth-context';
+
+export interface ArtifactCompatibility {
+  isValid: boolean;
+  warnings: string[];
+}
 
 // Experiment state type
 export interface ExperimentState {
@@ -26,14 +32,18 @@ export interface ExperimentState {
   datasetId?: string;
   datasetName?: string;
   datasetVersion?: string;
+  datasetSourceFiles?: string[];
   
   tokenizerId?: string;
   tokenizerName?: string;
   tokenizerVocabSize?: number;
+  tokenizerDatasetVersion?: string;
   
   modelId?: string;
   modelName?: string;
   modelCheckpoint?: string;
+  modelVocabSize?: number;
+  modelTokenizerId?: string;
   
   // Configuration
   taskType?: 'pretrain' | 'sft' | 'lora' | 'evaluation' | 'rag';
@@ -49,12 +59,14 @@ export interface ExperimentState {
 interface ExperimentContextType {
   // Current state
   experiment: ExperimentState;
+  compatibility: ArtifactCompatibility;
   
   // Actions
-  setDataset: (id: string, name: string, version?: string) => void;
-  setTokenizer: (id: string, name: string, vocabSize?: number) => void;
-  setModel: (id: string, name: string, checkpoint?: string) => void;
+  setDataset: (id: string, name: string, version?: string, options?: { resetDownstream?: boolean }) => void;
+  setTokenizer: (id: string, name: string, vocabSize?: number, options?: { resetDownstream?: boolean; datasetVersion?: string }) => void;
+  setModel: (id: string, name: string, checkpoint?: string, options?: { vocabSize?: number; tokenizerId?: string }) => void;
   setTaskType: (taskType: ExperimentState['taskType']) => void;
+  validateCompatibility: (state?: ExperimentState) => ArtifactCompatibility;
   
   // Experiment management
   startNewExperiment: (name?: string) => void;
@@ -73,62 +85,136 @@ interface ExperimentContextType {
 
 const ExperimentContext = createContext<ExperimentContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'ai-lab-experiment-context';
-
 export function ExperimentProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [experiment, setExperiment] = useState<ExperimentState>({});
 
-  // Load from localStorage on mount
+  // Kullanıcıya özel localStorage anahtarı (Kullanıcı değiştiğinde veya çıkış yapıldığında izolasyon sağlar)
+  const storageKey = user?.user_id
+    ? `ai-lab-experiment-context:${user.user_id}`
+    : 'ai-lab-experiment-context:guest';
+
+  // Artefakt uyumluluk denetleyicisi (Dataset - Tokenizer - Model uyumu)
+  const validateCompatibility = useCallback((targetState?: ExperimentState): ArtifactCompatibility => {
+    const state = targetState || experiment;
+    const warnings: string[] = [];
+
+    // Dataset vs Tokenizer kontrolü
+    if (state.datasetVersion && state.tokenizerDatasetVersion && state.datasetVersion !== state.tokenizerDatasetVersion) {
+      warnings.push(
+        `Seçili Tokenizer (${state.tokenizerName}) farklı bir dataset versiyonu (${state.tokenizerDatasetVersion}) ile eğitilmiş; aktif dataset: ${state.datasetVersion}.`
+      );
+    }
+
+    // Tokenizer vs Model kontrolü
+    if (state.modelTokenizerId && state.tokenizerId && state.modelTokenizerId !== state.tokenizerId) {
+      warnings.push(
+        `Seçili Model (${state.modelName}) mevcut Tokenizer (${state.tokenizerName}) yerine farklı bir tokenizer ile eğitilmiş.`
+      );
+    }
+
+    if (state.modelVocabSize && state.tokenizerVocabSize && state.modelVocabSize !== state.tokenizerVocabSize) {
+      warnings.push(
+        `Sözlük boyutu uyuşmazlığı: Model sözlüğü ${state.modelVocabSize}, Tokenizer sözlüğü ${state.tokenizerVocabSize}. Tahminlerde indeks taşması riski var.`
+      );
+    }
+
+    return {
+      isValid: warnings.length === 0,
+      warnings,
+    };
+  }, [experiment]);
+
+  const compatibility = validateCompatibility(experiment);
+
+  // Load from localStorage on mount or when user changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
           setExperiment(parsed);
+          return;
         } catch (e) {
           console.error('Failed to load experiment context:', e);
         }
       }
+      // Kullanıcı değiştiyse veya kayıt yoksa temiz state'e geç
+      setExperiment({});
     }
-  }, []);
+  }, [storageKey]);
 
   // Save to localStorage on change
   useEffect(() => {
-    if (typeof window !== 'undefined' && Object.keys(experiment).length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(experiment));
+    if (typeof window !== 'undefined') {
+      if (Object.keys(experiment).length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(experiment));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
     }
-  }, [experiment]);
+  }, [experiment, storageKey]);
 
-  const setDataset = useCallback((id: string, name: string, version?: string) => {
-    setExperiment(prev => ({
-      ...prev,
-      datasetId: id,
-      datasetName: name,
-      datasetVersion: version,
-      lastModified: new Date().toISOString(),
-    }));
-  }, []);
+  const setDataset = useCallback(
+    (id: string, name: string, version?: string, options?: { resetDownstream?: boolean }) => {
+      setExperiment(prev => {
+        const isNewDataset = prev.datasetId && prev.datasetId !== id;
+        const reset = options?.resetDownstream ?? false;
+        return {
+          ...prev,
+          datasetId: id,
+          datasetName: name,
+          datasetVersion: version,
+          tokenizerId: reset && isNewDataset ? undefined : prev.tokenizerId,
+          tokenizerName: reset && isNewDataset ? undefined : prev.tokenizerName,
+          tokenizerVocabSize: reset && isNewDataset ? undefined : prev.tokenizerVocabSize,
+          tokenizerDatasetVersion: reset && isNewDataset ? undefined : prev.tokenizerDatasetVersion,
+          modelId: reset && isNewDataset ? undefined : prev.modelId,
+          modelName: reset && isNewDataset ? undefined : prev.modelName,
+          modelCheckpoint: reset && isNewDataset ? undefined : prev.modelCheckpoint,
+          lastModified: new Date().toISOString(),
+        };
+      });
+    },
+    []
+  );
 
-  const setTokenizer = useCallback((id: string, name: string, vocabSize?: number) => {
-    setExperiment(prev => ({
-      ...prev,
-      tokenizerId: id,
-      tokenizerName: name,
-      tokenizerVocabSize: vocabSize,
-      lastModified: new Date().toISOString(),
-    }));
-  }, []);
+  const setTokenizer = useCallback(
+    (id: string, name: string, vocabSize?: number, options?: { resetDownstream?: boolean; datasetVersion?: string }) => {
+      setExperiment(prev => {
+        const isNewTokenizer = prev.tokenizerId && prev.tokenizerId !== id;
+        const reset = options?.resetDownstream ?? false;
+        return {
+          ...prev,
+          tokenizerId: id,
+          tokenizerName: name,
+          tokenizerVocabSize: vocabSize,
+          tokenizerDatasetVersion: options?.datasetVersion || prev.datasetVersion,
+          modelId: reset && isNewTokenizer ? undefined : prev.modelId,
+          modelName: reset && isNewTokenizer ? undefined : prev.modelName,
+          modelCheckpoint: reset && isNewTokenizer ? undefined : prev.modelCheckpoint,
+          lastModified: new Date().toISOString(),
+        };
+      });
+    },
+    []
+  );
 
-  const setModel = useCallback((id: string, name: string, checkpoint?: string) => {
-    setExperiment(prev => ({
-      ...prev,
-      modelId: id,
-      modelName: name,
-      modelCheckpoint: checkpoint,
-      lastModified: new Date().toISOString(),
-    }));
-  }, []);
+  const setModel = useCallback(
+    (id: string, name: string, checkpoint?: string, options?: { vocabSize?: number; tokenizerId?: string }) => {
+      setExperiment(prev => ({
+        ...prev,
+        modelId: id,
+        modelName: name,
+        modelCheckpoint: checkpoint,
+        modelVocabSize: options?.vocabSize,
+        modelTokenizerId: options?.tokenizerId || prev.tokenizerId,
+        lastModified: new Date().toISOString(),
+      }));
+    },
+    []
+  );
 
   const setTaskType = useCallback((taskType: ExperimentState['taskType']) => {
     setExperiment(prev => ({
@@ -152,9 +238,9 @@ export function ExperimentProvider({ children }: { children: React.ReactNode }) 
   const clearExperiment = useCallback(() => {
     setExperiment({});
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(storageKey);
     }
-  }, []);
+  }, [storageKey]);
 
   const loadExperiment = useCallback((state: ExperimentState) => {
     setExperiment(state);
@@ -192,10 +278,12 @@ export function ExperimentProvider({ children }: { children: React.ReactNode }) 
 
   const value: ExperimentContextType = {
     experiment,
+    compatibility,
     setDataset,
     setTokenizer,
     setModel,
     setTaskType,
+    validateCompatibility,
     startNewExperiment,
     clearExperiment,
     loadExperiment,
@@ -224,7 +312,7 @@ export function useExperiment() {
 
 // Helper component: Experiment status bar
 export function ExperimentStatusBar() {
-  const { experiment, hasDataset, hasTokenizer, hasModel } = useExperiment();
+  const { experiment, hasDataset, hasTokenizer, hasModel, compatibility } = useExperiment();
 
   if (!experiment.experimentId) {
     return null;
@@ -232,8 +320,8 @@ export function ExperimentStatusBar() {
 
   return (
     <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-2">
-      <div className="max-w-7xl mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
             <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
@@ -241,17 +329,17 @@ export function ExperimentStatusBar() {
             </span>
           </div>
           
-          <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+          <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300 flex-wrap">
             {hasDataset() && (
               <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 rounded">
                 <span>📊</span>
-                <span>{experiment.datasetName}</span>
+                <span>{experiment.datasetName} {experiment.datasetVersion ? `(${experiment.datasetVersion})` : ''}</span>
               </div>
             )}
             {hasTokenizer() && (
               <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 rounded">
                 <span>🔤</span>
-                <span>{experiment.tokenizerName}</span>
+                <span>{experiment.tokenizerName} {experiment.tokenizerVocabSize ? `(${experiment.tokenizerVocabSize})` : ''}</span>
               </div>
             )}
             {hasModel() && (
@@ -262,6 +350,13 @@ export function ExperimentStatusBar() {
             )}
           </div>
         </div>
+
+        {compatibility.warnings.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40 px-2 py-1 rounded">
+            <span>⚠️</span>
+            <span>{compatibility.warnings[0]}</span>
+          </div>
+        )}
       </div>
     </div>
   );

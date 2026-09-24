@@ -137,7 +137,8 @@ def start_training(
             job_type=request.job_type,
             dataset_id=request.dataset_id,
             tokenizer_id=request.tokenizer_id,
-            config=config
+            config=config,
+            user_id=str(current_user.user_id) if current_user and current_user.user_id else None
         )
     
     except (ValueError, FileNotFoundError) as exc:

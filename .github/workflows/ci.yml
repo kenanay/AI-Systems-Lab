@@ -81,6 +81,10 @@ jobs:
     needs: [backend-ci, frontend-ci]
     runs-on: ubuntu-latest
     steps:
-      - name: Standard Verification Check
+      - name: Quality Gate Verification Summary
         run: |
-          echo "✅ All 360+ Backend and 76 Frontend quality gates passed successfully!"
+          echo "=========================================================="
+          echo "✅ CI Quality Gate: All quality gates passed successfully!"
+          echo " - Backend CI: Python 3.11 compileall + Pytest suite (PASSED)"
+          echo " - Frontend CI: TypeScript type-check + Jest suite + Next.js build (PASSED)"
+          echo "=========================================================="

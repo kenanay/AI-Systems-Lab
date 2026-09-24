@@ -31,7 +31,7 @@ import pytest
 import tempfile
 import shutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 import time
 
@@ -90,13 +90,13 @@ class TestEndToEndTurkishGPT:
     """
     
     # Test state - adımlar arası veri paylaşımı
-    file_id: str = None
-    document_id: str = None
-    tokenizer_id: str = None
-    dataset_id: str = None
-    job_id: str = None
-    model_version: str = None
-    checkpoint_path: Path = None
+    file_id: Optional[str] = None
+    document_id: Optional[str] = None
+    tokenizer_id: Optional[str] = None
+    dataset_id: Optional[str] = None
+    job_id: Optional[str] = None
+    model_version: Optional[str] = None
+    checkpoint_path: Optional[Path] = None
     
     def test_01_upload_turkish_data(self, db_session: Session, test_workspace: Path):
         """
@@ -151,7 +151,7 @@ class TestEndToEndTurkishGPT:
         db_session.add(file_record)
         db_session.commit()
         
-        TestEndToEndTurkishGPT.file_id = file_record.file_id
+        TestEndToEndTurkishGPT.file_id = str(file_record.file_id)
         
         # Doğrulamalar
         assert file_record.sha256 == file_hash, "File hash mismatch"
@@ -181,7 +181,7 @@ class TestEndToEndTurkishGPT:
         assert file_record is not None, "File record not found"
         
         # Dosyayı oku ve parse et
-        with open(file_record.relative_path, 'r', encoding='utf-8') as f:
+        with open(str(file_record.relative_path), 'r', encoding='utf-8') as f:
             text = f.read()
         
         # DocumentRecord oluştur
@@ -189,7 +189,7 @@ class TestEndToEndTurkishGPT:
         
         doc_record = DocumentRecord(
             document_id=f"TEST-DOC-{int(time.time())}",
-            file_id=file_record.file_id,
+            file_id=str(file_record.file_id),
             text=text.strip(),
             language="tr",
             char_count=len(text),
@@ -203,7 +203,7 @@ class TestEndToEndTurkishGPT:
         db_session.add(doc_record)
         db_session.commit()
         
-        TestEndToEndTurkishGPT.document_id = doc_record.document_id
+        TestEndToEndTurkishGPT.document_id = str(doc_record.document_id)
         
         # Doğrulamalar
         assert doc_record.quality_score >= 0.0, "Quality score invalid"
@@ -254,6 +254,7 @@ class TestEndToEndTurkishGPT:
         doc_record = db_session.query(DocumentRecord).filter_by(
             document_id=TestEndToEndTurkishGPT.document_id
         ).first()
+        assert doc_record is not None, "Document record not found"
         
         # Tokenizer eğit
         tokenizer = BPETokenizer(vocab_size=VOCAB_SIZE)
@@ -277,7 +278,7 @@ class TestEndToEndTurkishGPT:
         db_session.add(tokenizer_record)
         db_session.commit()
         
-        TestEndToEndTurkishGPT.tokenizer_id = tokenizer_record.tokenizer_id
+        TestEndToEndTurkishGPT.tokenizer_id = str(tokenizer_record.tokenizer_id)
         
         # Türkçe test
         test_text = "Türkiye'de yapay zeka"
@@ -310,8 +311,9 @@ class TestEndToEndTurkishGPT:
         tokenizer_record = db_session.query(TokenizerRecord).filter_by(
             tokenizer_id=TestEndToEndTurkishGPT.tokenizer_id
         ).first()
+        assert tokenizer_record is not None, "Tokenizer record not found"
         
-        tokenizer = BPETokenizer.load(tokenizer_record.storage_path)
+        tokenizer = BPETokenizer.load(str(tokenizer_record.storage_path))
         
         # Document al
         documents = db_session.query(DocumentRecord).filter_by(
@@ -350,7 +352,7 @@ class TestEndToEndTurkishGPT:
         db_session.add(dataset_record)
         db_session.commit()
         
-        TestEndToEndTurkishGPT.dataset_id = dataset_record.dataset_id
+        TestEndToEndTurkishGPT.dataset_id = str(dataset_record.dataset_id)
         
         # Doğrulamalar
         assert Path(result['output_path']).exists(), "Parquet file not created"
@@ -447,7 +449,7 @@ class TestEndToEndTurkishGPT:
         db_session.add(job)
         db_session.commit()
         
-        TestEndToEndTurkishGPT.job_id = job.job_id
+        TestEndToEndTurkishGPT.job_id = str(job.job_id)
         
         print(f"✓ Training job oluşturuldu: {job.job_id}")
         print(f"  Job type: {job.job_type}")

@@ -12,8 +12,8 @@ Local AI Research Lab projesine katkıda bulunmak istediğiniz için teşekkürl
 
 ```bash
 # Repository'yi fork edin ve klonlayın
-git clone https://github.com/your-username/local-ai-research-lab.git
-cd local-ai-research-lab
+git clone https://github.com/your-username/AI-Systems-Lab.git
+cd AI-Systems-Lab
 
 # Python sanal ortamı oluşturun
 python -m venv venv

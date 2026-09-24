@@ -20,9 +20,11 @@ def setup_active_inference_model():
     tok = BPETokenizer(vocab_size=260)
     tok.train(["Yapay zeka ve derin öğrenme", "Transformer mimarisinde attention", "Test streaming"])
     cfg = GPTConfig(vocab_size=tok.vocab_size, max_seq_len=64, d_model=32, n_layers=2, n_heads=2, d_ff=64)
-    manager.model = GPTModel(cfg)
-    manager.tokenizer = tok
-    manager.model_name = "test-gpt-mini"
+    from typing import Any
+    mgr: Any = manager
+    mgr.model = GPTModel(cfg)
+    mgr.tokenizer = tok
+    mgr.model_name = "test-gpt-mini"
 
 
 def test_models_list_api() -> None:

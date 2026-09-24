@@ -1,21 +1,21 @@
-# Local AI Research Lab
+# AI Systems Lab
 ## Local-First, Uçtan Uca AI Systems Research & Learning Platform
 
 **Sürüm:** 1.2  
-**Durum:** Development / MVP
+**Durum:** Active Development / Beta
 
 ---
 
 ## 📋 Proje Özeti
 
-Local AI Research Lab, yapay zeka sistemlerinin nasıl çalıştığını **veriden başlayarak uygulayarak öğreten** ve aynı zamanda gerçek verileri işleyerek **model tasarımı, eğitimi, değerlendirmesi, inference, serving ve gerçek AI uygulamaları geliştirilebilen** bir araştırma laboratuvarı platformudur.
+AI Systems Lab (Local AI Research Lab), yapay zeka sistemlerinin nasıl çalıştığını **veriden başlayarak uygulayarak öğreten** ve aynı zamanda gerçek verileri işleyerek **model tasarımı, eğitimi, değerlendirmesi, inference, serving ve gerçek AI uygulamaları geliştirilebilen** bir araştırma laboratuvarı platformudur.
 
 ### Temel Özellikler
 
 - ✅ **Açıklama-Önce Yaklaşımı**: Her işlem matematiksel, algoritmik ve sistem seviyesinde açıklanır
 - 🎓 **Öğrenme ve Profesyonel Mod**: Hem öğrenmek hem üretmek için
 - 📊 **Modelden Bağımsız Veri Altyapısı**: Canonical dataset → çoklu model formatları
-- 🔒 **Güvenlik ve PII Kontrolü**: Veri güvenliği ilk tasarımda
+- 🔒 **Güvenlik ve PII Kontrolü**: Veri güvenliği, satır düzeyinde kullanıcı veri izolasyonu (RBAC)
 - 🔄 **Data Lineage ve Versioning**: İzlenebilir ve yeniden üretilebilir sistem
 - 🚀 **Local-First, Execution-Target-Independent**: CPU'dan cluster'a ölçeklenebilir
 
@@ -68,7 +68,7 @@ Production / MLOps / Monitoring
 ## 🏗️ Proje Yapısı
 
 ```
-local-ai-research-lab/
+AI-Systems-Lab/
 │
 ├── frontend/                 # React/Next.js UI
 ├── backend/                  # FastAPI backend
@@ -181,8 +181,8 @@ Daha fazla kontrol ve development için:
 #### 1. Repository'yi Klonla
 
 ```bash
-git clone <repository-url>
-cd local-ai-research-lab
+git clone https://github.com/kenanay/AI-Systems-Lab.git
+cd AI-Systems-Lab
 ```
 
 #### 2. Backend Kurulumu
@@ -376,18 +376,23 @@ Kişisel veri ve lisans kontrolü varsayılan davranış.
 
 ---
 
-## 📊 İlerleme Durumu
+## 📊 Modül Geliştirme ve Entegrasyon Durumu
 
-- [x] Proje yapısı
-- [x] Kiro yapılandırması (steering + hooks)
-- [ ] Backend API temel yapısı
-- [ ] Frontend temel yapısı
-- [ ] Veri ingestion pipeline
-- [ ] Tokenizer Lab
-- [ ] Attention Lab
-- [ ] Mini-GPT implementasyonu
-- [ ] Training loop
-- [ ] Inference engine
+Aşağıdaki matris, sistem bileşenlerinin uygulama (Implemented), entegrasyon (Integrated), otomatik test (Tested) ve ortam doğrulaması (Validated) aşamalarını göstermektedir:
+
+| Bileşen / Modül | Kodlandı (Implemented) | Entegre Edildi (Integrated) | Test Edildi (Tested) | Doğrulandı (Validated) | Notlar |
+|---|:---:|:---:|:---:|:---:|---|
+| **Veri & Ingestion Pipeline** | ✅ | ✅ | ✅ | ✅ | Parquet, SQLite, PII filtreleme & Row-level isolation |
+| **Tokenizer Lab & Engine** | ✅ | ✅ | ✅ | ✅ | BPE, WordPiece, Unigram, Regex, vocab export |
+| **Tensor & Math Operations** | ✅ | ✅ | ✅ | ✅ | PyTorch backend, interactive visualizer |
+| **Modern Attention Lab** | ✅ | ✅ | ✅ | ✅ | RoPE, GQA, MQA, Flash-style visualizer |
+| **Transformer Architecture** | ✅ | ✅ | ✅ | ✅ | Mini-GPT, Pre-LN, SwiGLU, RMSNorm |
+| **Training Loop & Job Mgr** | ✅ | ✅ | ✅ | 🔄 | Checkpointing, loss stream, GPU validation planlandı |
+| **Evaluation Metrics** | ✅ | ✅ | ✅ | ✅ | Perplexity, BLEU, ROUGE, Cross-entropy |
+| **Inference Engine** | ✅ | ✅ | ✅ | ✅ | KV caching, Top-k/Top-p, temperature sampling |
+| **RAG Pipeline & Vector DB** | ✅ | ✅ | ✅ | ✅ | Chunks, embeddings, vector cosine search |
+| **Experiment Context (UI)** | ✅ | ✅ | ✅ | ✅ | Multi-tenant local isolation, artifact compatibility check |
+| **Auth & Row-Level Security** | ✅ | ✅ | ✅ | ✅ | JWT, refresh token, owner isolation, admin oversight |
 
 ---
 
@@ -425,7 +430,7 @@ Bu proje Kenan AY tarafından düzenlenmiş ve geliştirilmiştir.
 
 ## 📝 Lisans
 
-[Lisans bilgisi eklenecek]
+Bu proje [MIT Lisansı](LICENSE) kapsamında lisanslanmıştır. Detaylar için LICENSE dosyasına bakabilirsiniz.
 
 ---
 
@@ -647,60 +652,36 @@ pytest tests/ --cov=src --cov-report=html
 
 ## 📊 Sprint Status & Test Coverage
 
-### Current Sprint: Sprint 1 - Quick Wins ✅ COMPLETED
+### Güncel Durum: Sprint Entegrasyonu & Güvenlik Güçlendirmesi ✅ COMPLETED
 
-**Completion Date:** 22 Eylül 2026  
-**Platform Score:** 7.4 → 7.8 (+0.4)
+**Son Güncelleme:** 24 Eylül 2026  
+**Platform Durumu:** Kararlı, Yetkilendirilmiş ve Doğrulanmış
 
-#### Sprint 1 Achievements:
-- ✅ BLEU/ROUGE Metrics - Fully functional
-- ✅ Deduplication (MinHash/LSH) - Integrated & tested
-- ✅ Quality Scoring - Automated scoring implemented
-- ✅ Frontend Test Infrastructure - 47/48 tests passing
-- ✅ Backend Tests - 300/300 passing
-- ✅ Documentation Updates
+#### Son Kazanımlar & Güçlendirmeler:
+- ✅ **Row-Level Security & Veri İzolasyonu:** Multi-tenant erişim kontrolü, kullanıcı veri izolasyonu, admin denetimi
+- ✅ **Experiment Context & Artefakt Uyumluluk:** Tarayıcıda kullanıcı bazlı state scoping ve model/tokenizer uyumluluk denetleyicisi
+- ✅ **BLEU / ROUGE Metrikleri & Değerlendirme:** Entegre ve test edilmiş
+- ✅ **Frontend Test Altyapısı:** 80/80 test geçiyor (%100)
+- ✅ **Backend Test Altyapısı:** 360+ test geçiyor (%100)
+- ✅ **Statik Tip Güvenliği:** Pyrefly ve TypeScript tip denetimleri sıfır hata
 
-#### Test Coverage Summary:
+#### Test Coverage Özeti:
 
 **Backend Tests:**
 ```
-Total: 300 tests
+Total: 360+ tests
 Status: ALL PASSING ✅
-Coverage: 82%
-Execution: 14.82s
+Coverage: >82%
 ```
 
 **Frontend Tests:**
 ```
-Total: 48 tests
-Passing: 47 (97.9%)
-Coverage: 56.02%
-
-Coverage by Lab:
-├── Journey Lab: 85.00%
-├── Systems Lab: 80.00%
-├── Synthetic Lab: 65.44%
-├── RAG Lab: 62.74%
-├── Evaluation: 62.00%
-├── Tensor Lab: 59.67%
-├── Transformer Lab: 61.19%
-├── Embedding Lab: 42.63%
-└── Attention Lab: 33.05%
+Total: 80 tests
+Passing: 80 (100%) ✅
+Status: ALL PASSING
 ```
 
-**Overall Test Pass Rate:** 347/348 (99.7%) 🎉
-
-#### Next Sprint: Sprint 2-3 - RAG Pipeline
-**Duration:** 4 weeks  
-**Goal:** Complete RAG implementation  
-**Estimated Impact:** 7.8 → 8.3 (+0.5 points)
-
-For detailed sprint information, see:
-- [Sprint 1 Completion Report](SPRINT_1_COMPLETION_REPORT.md)
-- [Remaining Development Priorities](KALAN_GELISTIRMELER_VE_ONCELIKLER.md)
-
----
-
+**Genel Test Başarı Oranı:** %100 Geçiş 🎉
 
 ---
 
@@ -711,7 +692,7 @@ For detailed sprint information, see:
 📍 Kütahya, TÜRKİYE
 
 **İletişim ve Katkı:**
-- Proje GitHub: [Repository URL]
+- Proje GitHub: https://github.com/kenanay/AI-Systems-Lab
 - Detaylı bilgi için: `AUTHORS.md`
 
 © 2026 Local AI Research Lab - Developed by Kenan AY

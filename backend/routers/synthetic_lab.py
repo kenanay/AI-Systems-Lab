@@ -385,6 +385,7 @@ async def ingest_synthetic_to_dataset(
             doc_record = DocumentRecord(
                 document_id=doc_id,
                 file_id=file_id,
+                owner_id=getattr(file_record, "owner_id", None),
                 title=(instr or "Sentetik Talimat Metni")[:120],
                 text=doc_text,
                 language="tr",

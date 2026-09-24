@@ -156,20 +156,26 @@ async def create_training_job(
             special_tokens=request.special_tokens
         )
         
+        job_id_str = str(job.job_id)
+        job_name_str = str(job.job_name)
+        status_str = str(job.status)
+        progress_val = float(getattr(job, "progress", 0.0) or 0.0)
+        created_at_str = job.created_at.isoformat() if hasattr(job.created_at, "isoformat") else str(job.created_at)
+
         # Background task olarak training başlat
         background_tasks.add_task(
             service.run_training_job,
-            job.job_id
+            job_id_str
         )
         
-        logger.info(f"Training job created and started: {job.job_id}")
+        logger.info(f"Training job created and started: {job_id_str}")
         
         return TokenizerJobResponse(
-            job_id=job.job_id,
-            job_name=job.job_name,
-            status=job.status,
-            progress=job.progress,
-            created_at=job.created_at.isoformat(),
+            job_id=job_id_str,
+            job_name=job_name_str,
+            status=status_str,
+            progress=progress_val,
+            created_at=created_at_str,
             metadata={}
         )
         

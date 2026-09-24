@@ -226,6 +226,7 @@ class IngestionService:
             document = DocumentRecord(
                 document_id=document_id,
                 file_id=str(file_record.file_id),
+                owner_id=getattr(file_record, "owner_id", None),
                 title=title,
                 text=normalized_text,
                 language=doc_lang,

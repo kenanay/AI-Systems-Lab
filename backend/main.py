@@ -63,7 +63,7 @@ app = FastAPI(
     lifespan=lifespan,
     contact={
         "name": "Kenan AY",
-        "url": "https://github.com/kenanay/local-ai-research-lab",
+        "url": "https://github.com/kenanay/AI-Systems-Lab",
     },
     license_info={
         "name": "MIT",

@@ -7,7 +7,7 @@ Author: Kenan AY
 Version: 1.0.0
 """
 
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Header, Request, status
@@ -185,3 +185,55 @@ def require_role(*roles: str):
         )
 
     return role_checker
+
+
+def check_resource_access(
+    resource: Any,
+    current_user: UserRecord,
+    allow_unowned: bool = True
+) -> bool:
+    """
+    Kullanıcının verilen kaynağa erişim yetkisini doğrular.
+    - Admin kullanıcılar tüm kaynaklara erişebilir.
+    - Kaynak sahibi (owner_id) oturum açmış kullanıcı ile eşleşiyorsa erişim verilir.
+    - allow_unowned=True ise sahipsiz (sistem/demo/tohum) kaynaklar herkes tarafından görülebilir.
+    - DocumentRecord gibi alt kaynaklarda üst kaynağın (FileRecord) sahipliği de kontrol edilir.
+    """
+    if not current_user:
+        return False
+
+    if (current_user.role or "").lower() == "admin":
+        return True
+
+    owner_id = getattr(resource, "owner_id", None)
+    if owner_id is not None:
+        return str(owner_id) == str(current_user.user_id)
+
+    # DocumentRecord için parent file sahipliğini kontrol et
+    file_rel = getattr(resource, "file", None)
+    if file_rel is not None and getattr(file_rel, "owner_id", None) is not None:
+        return str(file_rel.owner_id) == str(current_user.user_id)
+
+    return allow_unowned
+
+
+def filter_by_owner(
+    query: Any,
+    model: Any,
+    current_user: UserRecord,
+    allow_unowned: bool = True
+) -> Any:
+    """
+    SQLAlchemy sorgusuna satır düzeyinde sahiplik/yetkilendirme filtresi ekler.
+    Admin kullanıcılar tüm kayıtları görür.
+    Standart kullanıcılar kendi kaynaklarını (ve allow_unowned=True ise paylaşımlı/örnek kaynakları) görür.
+    """
+    if not current_user or (current_user.role or "").lower() == "admin":
+        return query
+
+    if hasattr(model, "owner_id"):
+        if allow_unowned:
+            return query.filter((model.owner_id == current_user.user_id) | (model.owner_id == None))
+        return query.filter(model.owner_id == current_user.user_id)
+
+    return query

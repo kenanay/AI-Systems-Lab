@@ -1,13 +1,13 @@
 {
-  "name": "local-ai-research-lab-frontend",
+  "name": "ai-systems-lab-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Local AI Research Lab - Frontend Application",
+  "description": "AI Systems Lab - Frontend Application",
   "author": "Kenan AY",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kenanay/local-ai-research-lab"
+    "url": "https://github.com/kenanay/AI-Systems-Lab"
   },
   "scripts": {
     "dev": "next dev",

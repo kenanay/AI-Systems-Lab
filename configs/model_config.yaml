@@ -105,7 +105,7 @@ logging:
   tensorboard: true
   wandb:
     enabled: false
-    project: "local-ai-research-lab"
+    project: "AI-Systems-Lab"
     entity: null
 
 # Seed (Reproducibility)

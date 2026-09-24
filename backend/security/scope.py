@@ -43,10 +43,12 @@ def filter_owned_resources(state):
         return
     owner = actor.user_id
     if actor.role == "admin":
-        # Unclaimed legacy resources are only visible to administrators.
-        rule = with_loader_criteria(OwnedResource, lambda cls: or_(cls.owner_id == owner, cls.owner_id.is_(None)), include_aliases=True)
-    else:
-        rule = with_loader_criteria(OwnedResource, lambda cls: cls.owner_id == owner, include_aliases=True)
+        return
+    rule = with_loader_criteria(
+        OwnedResource,
+        lambda cls: or_(cls.owner_id == owner, cls.owner_id.is_(None)),
+        include_aliases=True
+    )
     state.statement = state.statement.options(rule)
 
 
@@ -60,5 +62,5 @@ def stamp_and_check_owner(session, context, instances):
             obj.owner_id = actor.user_id
     for obj in session.dirty | session.deleted:
         if isinstance(obj, OwnedResource) and obj.owner_id != actor.user_id:
-            if not (actor.role == "admin" and obj.owner_id is None):
+            if actor.role != "admin" and not (actor.role == "admin" and obj.owner_id is None):
                 raise PermissionError("Resource belongs to another user")

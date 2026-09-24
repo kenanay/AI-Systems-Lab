@@ -10,8 +10,13 @@ from typing import Any, List, Optional
 import logging
 
 from backend.database import get_db
-from backend.models import DocumentRecord, UserRecord
-from backend.security.dependencies import get_current_user, require_role
+from backend.models import DocumentRecord, UserRecord, FileRecord
+from backend.security.dependencies import (
+    get_current_user,
+    require_role,
+    check_resource_access,
+    filter_by_owner
+)
 from backend.schemas import (
     DocumentRecordResponse,
     DocumentPreview,
@@ -64,7 +69,7 @@ def list_documents(
     Returns:
         DocumentPreview listesi
     """
-    query = db.query(DocumentRecord)
+    query = filter_by_owner(db.query(DocumentRecord), DocumentRecord, current_user, allow_unowned=True)
     
     # Filtreler
     if language:
@@ -123,7 +128,7 @@ def get_document(
         DocumentRecord (full text)
         
     Raises:
-        HTTPException: Doküman bulunamazsa
+        HTTPException: Doküman bulunamazsa veya erişim yetkisi yoksa
     """
     document = db.query(DocumentRecord)\
         .filter(DocumentRecord.document_id == document_id)\
@@ -135,11 +140,21 @@ def get_document(
             detail=f"Doküman bulunamadı: {document_id}"
         )
     
+    if not check_resource_access(document, current_user, allow_unowned=True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu dokümana erişim yetkiniz bulunmuyor."
+        )
+    
     return document
 
 
 @router.get("/documents/by-file/{file_id}", response_model=DocumentRecordResponse)
-def get_document_by_file(file_id: str, db: Session = Depends(get_db)) -> DocumentRecordResponse:
+def get_document_by_file(
+    file_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
+) -> DocumentRecordResponse:
     """
     File ID'ye göre dokümanı getir.
     
@@ -151,8 +166,21 @@ def get_document_by_file(file_id: str, db: Session = Depends(get_db)) -> Documen
         DocumentRecord (full text)
         
     Raises:
-        HTTPException: Doküman bulunamazsa
+        HTTPException: Doküman bulunamazsa veya erişim yetkisi yoksa
     """
+    # Dosya varlığı ve erişim kontrolü
+    file_record = db.query(FileRecord).filter(FileRecord.file_id == file_id).first()
+    if not file_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dosya bulunamadı: {file_id}"
+        )
+    if not check_resource_access(file_record, current_user, allow_unowned=True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu dosyaya ve bağlı dokümanlarına erişim yetkiniz bulunmuyor."
+        )
+
     document = db.query(DocumentRecord)\
         .filter(DocumentRecord.file_id == file_id)\
         .first()
