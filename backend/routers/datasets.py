@@ -194,7 +194,7 @@ def get_document_by_file(
     return document
 
 
-@router.post("/export/parquet", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/export/parquet", status_code=status.HTTP_200_OK)
 def export_to_parquet(
     db: Session = Depends(get_db),
     current_user: UserRecord = Depends(require_role("admin", "researcher"))
@@ -279,7 +279,7 @@ def export_to_parquet(
     }
 
 
-@router.post("/export/pretraining", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/export/pretraining", status_code=status.HTTP_200_OK)
 def export_for_pretraining(
     min_quality_score: float = Query(default=0.5, ge=0.0, le=1.0),
     db: Session = Depends(get_db),

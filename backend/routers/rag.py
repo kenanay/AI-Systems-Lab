@@ -21,6 +21,7 @@ import time
 import logging
 
 from backend.database import get_db
+from backend.config import settings
 from backend.models import DocumentRecord
 from src.rag.chunking import get_chunker, TextChunk
 from src.rag.vector_store import VectorStore, SearchResult
@@ -48,12 +49,20 @@ def _get_or_create_pipeline(collection_name: str = "default") -> RAGPipeline:
     collection_name = f"{actor.user_id if actor else 'local'}--{collection_name}"
     if collection_name not in _COLLECTIONS:
         # Yeni embedder ile initialize et
-        embedder = get_embedder(
-            embedder_type="local",
-            model_name="all-MiniLM-L6-v2",
-            use_cache=True,
-            cache_dir=f".embeddings_cache/{collection_name}"
-        )
+        try:
+            embedder = get_embedder(
+                embedder_type=settings.rag_embedder_type,
+                model_name=settings.rag_model_name,
+                use_cache=True,
+                allow_dummy_fallback=settings.rag_allow_dummy_fallback,
+                cache_dir=f".embeddings_cache/{collection_name}"
+            )
+        except (ImportError, OSError, ValueError) as exc:
+            logger.error("RAG embedder initialization failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="RAG embedder kullanılamıyor. Model/dependency yapılandırmasını kontrol edin.",
+            ) from exc
         
         v_store = VectorStore(
             collection_name=collection_name,

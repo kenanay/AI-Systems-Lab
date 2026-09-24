@@ -222,11 +222,20 @@ class IngestionService:
                     metadata=updated_metadata
                 )
                 logger.debug(f"Computed quality score: {doc_quality:.3f} for {document_id}")
-            
+
+            # File-level SHA deduplication happens during upload.  This second
+            # check catches different files that normalize to the same text.
+            owner_id = getattr(file_record, "owner_id", None)
+            duplicate_document = db.query(DocumentRecord).filter(
+                DocumentRecord.file_id != str(file_record.file_id),
+                DocumentRecord.owner_id == owner_id,
+                DocumentRecord.text == normalized_text,
+            ).first()
+
             document = DocumentRecord(
                 document_id=document_id,
                 file_id=str(file_record.file_id),
-                owner_id=getattr(file_record, "owner_id", None),
+                owner_id=owner_id,
                 title=title,
                 text=normalized_text,
                 language=doc_lang,
@@ -237,7 +246,7 @@ class IngestionService:
                 parser_version=str(updated_metadata["parser_version"]) if updated_metadata.get("parser_version") is not None else None,
                 schema_version=str(file_record.schema_version),
                 is_empty=len(normalized_text.strip()) == 0,
-                is_duplicate=False,  # TODO: Duplicate detection
+                is_duplicate=duplicate_document is not None,
                 quality_score=doc_quality,
             )
             

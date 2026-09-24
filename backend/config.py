@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     # Feature Flags
     pii_detection_enabled: bool = Field(default=True, alias="PII_DETECTION_ENABLED")
     auto_training_allowed: bool = Field(default=False, alias="AUTO_TRAINING_ALLOWED")
+
+    # RAG / embeddings
+    rag_embedder_type: str = Field(default="local", alias="RAG_EMBEDDER_TYPE")
+    rag_model_name: str = Field(default="all-MiniLM-L6-v2", alias="RAG_MODEL_NAME")
+    rag_allow_dummy_fallback: bool = Field(default=False, alias="RAG_ALLOW_DUMMY_FALLBACK")
     
     # CORS
     enable_cors: bool = Field(default=True, alias="ENABLE_CORS")

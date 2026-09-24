@@ -187,7 +187,7 @@ class TrainingService:
         from backend.config import settings
         env = dict(os.environ, DATABASE_URL=settings.database_url)
         with (log_dir / 'worker.log').open('ab') as log:
-            proc = subprocess.Popen([sys.executable, '-m', 'backend.worker', job_id],
+            proc = subprocess.Popen([sys.executable, '-m', 'backend.worker', 'training', job_id],
                                     stdout=log, stderr=log, env=env, start_new_session=True)
         job.config = {**job.config, 'worker_pid': proc.pid}
         self.db.commit()

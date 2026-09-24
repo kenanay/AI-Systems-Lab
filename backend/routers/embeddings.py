@@ -22,6 +22,7 @@ import numpy as np
 
 from src.server.inference_server import ModelManager
 from src.model.gpt import GPTModel, GPTConfig
+from src.rag.embedder import stable_text_seed
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ def _get_word_vector(word: str, model: GPTModel, tokenizer: Any) -> torch.Tensor
             elif callable(emb_layer):
                 embs = emb_layer(input_ids)
         if not isinstance(embs, torch.Tensor):
-            torch.manual_seed(abs(hash(word)) % (2**31 - 1))
+            torch.manual_seed(stable_text_seed(word))
             return torch.randn(d_model, device=device)
 
     # Mean pool across sequence length

@@ -18,6 +18,7 @@ import logging
 import torch
 
 from src.rag.chunking import TextChunk
+from src.rag.embedder import stable_text_seed
 from src.rag.vector_store import VectorStore, SearchResult
 from src.rag.retriever import BM25Index, HybridRetriever
 
@@ -147,8 +148,7 @@ class RAGPipeline:
                 logger.warning(f"Model embedding çıkarma hatası: {e}")
 
         # Deterministik fallback vektörü
-        clean = text.lower().strip()
-        h = abs(hash(clean)) % (2**31 - 1)
+        h = stable_text_seed(text)
         generator = torch.Generator().manual_seed(h)
         vec = torch.randn(self.d_model, generator=generator)
         return vec / torch.norm(vec, p=2).clamp_min(1e-12)

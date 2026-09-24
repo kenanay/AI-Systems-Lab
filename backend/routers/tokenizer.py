@@ -9,7 +9,7 @@ Bu modül tokenizer operasyonları için REST API sağlar:
 - Text encoding/decoding
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -17,6 +17,7 @@ import logging
 
 from backend.database import get_db
 from backend.services.tokenizer_service import TokenizerTrainingService
+from backend.services.job_runner import spawn_job_worker
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,6 @@ class TokenizerUpdateRequest(BaseModel):
 @router.post("/train", response_model=TokenizerJobResponse, status_code=201)
 async def create_training_job(
     request: TokenizerTrainingRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -162,11 +162,7 @@ async def create_training_job(
         progress_val = float(getattr(job, "progress", 0.0) or 0.0)
         created_at_str = job.created_at.isoformat() if hasattr(job.created_at, "isoformat") else str(job.created_at)
 
-        # Background task olarak training başlat
-        background_tasks.add_task(
-            service.run_training_job,
-            job_id_str
-        )
+        spawn_job_worker("tokenizer", job_id_str, db, job)
         
         logger.info(f"Training job created and started: {job_id_str}")
         

@@ -28,7 +28,13 @@ from backend.utils import (
     format_file_size
 )
 from backend.config import settings
-from backend.schemas import FileRecordResponse, FileUploadResponse, DocumentRecordResponse, FileMetadataUpdate
+from backend.schemas import (
+    BatchProcessRequest,
+    FileRecordResponse,
+    FileUploadResponse,
+    DocumentRecordResponse,
+    FileMetadataUpdate,
+)
 from backend.services.ingestion_service import ingestion_service
 
 logger = logging.getLogger(__name__)
@@ -527,9 +533,9 @@ async def process_file(
         )
 
 
-@router.post("/batch-process", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/batch-process", status_code=status.HTTP_200_OK)
 async def batch_process_files(
-    file_ids: List[str],
+    request: BatchProcessRequest,
     db: Session = Depends(get_db),
     current_user: UserRecord = Depends(get_current_user)
 ) -> dict:
@@ -545,6 +551,7 @@ async def batch_process_files(
     Returns:
         Batch processing sonucu
     """
+    file_ids = request.file_ids
     logger.info(f"Batch processing başladı: {len(file_ids)} files")
     
     results = {

@@ -19,6 +19,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def stable_text_seed(text: str) -> int:
+    """Return a process-independent seed for deterministic text embeddings."""
+    digest = hashlib.sha256(text.lower().strip().encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % (2**63 - 1)
+
 # Optional sentence-transformers import
 try:
     from sentence_transformers import SentenceTransformer
@@ -80,8 +86,7 @@ class DummyEmbedder(BaseEmbedder):
         Returns:
             Normalized embedding, shape [d_model]
         """
-        clean = text.lower().strip()
-        h = abs(hash(clean)) % (2**31 - 1)
+        h = stable_text_seed(text)
         generator = torch.Generator().manual_seed(h)
         # vec shape: [d_model]
         vec = torch.randn(self.d_model, generator=generator)
@@ -200,6 +205,20 @@ class CachedEmbedder(BaseEmbedder):
         subdir = self.cache_dir / text_hash[:2]
         subdir.mkdir(exist_ok=True)
         return subdir / f"{text_hash}.pt"
+
+    def _load_cached_embedding(self, cache_path: Path) -> torch.Tensor:
+        """Load and validate a tensor-only cache entry."""
+        embedding = torch.load(cache_path, map_location="cpu", weights_only=True)
+        if not isinstance(embedding, torch.Tensor):
+            raise ValueError("Embedding cache entry is not a tensor")
+        if embedding.ndim != 1 or embedding.numel() != self.d_model:
+            raise ValueError(
+                f"Embedding cache shape mismatch: expected [{self.d_model}], "
+                f"got {tuple(embedding.shape)}"
+            )
+        if not torch.isfinite(embedding).all():
+            raise ValueError("Embedding cache contains non-finite values")
+        return embedding.detach().to(dtype=torch.float32).contiguous()
     
     def embed(self, text: str) -> torch.Tensor:
         """
@@ -221,7 +240,7 @@ class CachedEmbedder(BaseEmbedder):
         cache_path = self._get_cache_path(text_hash)
         if cache_path.exists():
             try:
-                embedding = torch.load(cache_path, map_location='cpu')
+                embedding = self._load_cached_embedding(cache_path)
                 # Memory cache'e ekle
                 if len(self.memory_cache) >= self.max_memory_items:
                     # LRU-like: İlk item'ı çıkar
@@ -274,12 +293,12 @@ class CachedEmbedder(BaseEmbedder):
             cache_path = self._get_cache_path(text_hash)
             if cache_path.exists():
                 try:
-                    embedding = torch.load(cache_path, map_location='cpu')
+                    embedding = self._load_cached_embedding(cache_path)
                     embeddings.append((i, embedding))
                     self.memory_cache[text_hash] = embedding
                     continue
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Cache load error for batch item: {e}")
             
             # Not cached
             uncached_texts.append(text)
@@ -295,8 +314,8 @@ class CachedEmbedder(BaseEmbedder):
                 cache_path = self._get_cache_path(text_hash)
                 try:
                     torch.save(embedding, cache_path)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Cache save error for batch item: {e}")
                 self.memory_cache[text_hash] = embedding
             
             # Add to results
@@ -324,6 +343,7 @@ def get_embedder(
     d_model: int = 64,
     use_cache: bool = True,
     cache_dir: str = ".embeddings_cache",
+    allow_dummy_fallback: bool = False,
     **kwargs
 ) -> BaseEmbedder:
     """
@@ -345,7 +365,13 @@ def get_embedder(
         embedder = DummyEmbedder(d_model=d_model)
     elif embedder_type == "local":
         if not HAS_SENTENCE_TRANSFORMERS:
-            logger.warning("sentence-transformers not available, falling back to DummyEmbedder")
+            if not allow_dummy_fallback:
+                raise ImportError(
+                    "sentence-transformers is required for the local embedder. "
+                    "Install the declared project dependencies or explicitly set "
+                    "RAG_ALLOW_DUMMY_FALLBACK=true for demo/test mode."
+                )
+            logger.warning("sentence-transformers not available, using explicit DummyEmbedder fallback")
             embedder = DummyEmbedder(d_model=d_model)
         else:
             embedder = LocalEmbedder(model_name=model_name, **kwargs)

@@ -9,7 +9,7 @@ Bu modül dataset compilation ve version management için REST API sağlar:
 - Dataset download
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import Any, List, Optional
@@ -19,6 +19,7 @@ from pathlib import Path
 
 from backend.database import get_db
 from backend.services.dataset_service import DatasetCompilationService
+from backend.services.job_runner import spawn_job_worker
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,6 @@ class DatasetVersionDetailResponse(BaseModel):
 @router.post("/compile", response_model=CompilationJobResponse, status_code=201)
 async def create_compilation_job(
     request: CompilationJobRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -165,13 +165,9 @@ async def create_compilation_job(
             compilation_params=request.compilation_params
         )
         
-        # Background task olarak compilation başlat
         j: Any = job
         job_id_str = str(getattr(j, "job_id", ""))
-        background_tasks.add_task(
-            service.run_compilation_job,
-            job_id_str
-        )
+        spawn_job_worker("compilation", job_id_str, db, job)
         
         logger.info(f"Compilation job created and started: {job_id_str}")
         

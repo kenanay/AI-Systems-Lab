@@ -226,6 +226,12 @@ npm run dev
 # Backend
 DATABASE_URL=sqlite:///data/local_ai_lab.db
 LOG_LEVEL=INFO
+ENVIRONMENT=development
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+REFRESH_TOKEN_EXPIRE_DAYS=14
+SEED_DEMO_USERS=false
+RAG_EMBEDDER_TYPE=local
+RAG_MODEL_NAME=all-MiniLM-L6-v2
 
 # Frontend
 NEXT_PUBLIC_API_URL=http://localhost:8000

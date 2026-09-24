@@ -6,7 +6,7 @@ API request/response modelleri.
 
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 
 class FileUploadResponse(BaseModel):
@@ -21,6 +21,11 @@ class FileUploadResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class BatchProcessRequest(BaseModel):
+    """Request body for synchronous batch file processing."""
+    file_ids: List[str] = Field(..., min_length=1, max_length=100)
 
 
 class FileRecordResponse(BaseModel):
