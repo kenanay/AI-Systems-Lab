@@ -33,6 +33,7 @@ sistemleri araştırma ortamı olarak tasarlanmıştır.
 ### İşletim ve güvenlik
 
 - [Kurulum, çalıştırma ve konfigürasyon](operations/configuration.md)
+- [Güvenli sunucu kurulumu ve deployment](operations/deployment.md)
 - [Güvenlik ve veri yönetişimi](operations/security.md)
 - [Sorun giderme](operations/troubleshooting.md)
 

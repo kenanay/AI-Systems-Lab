@@ -28,6 +28,9 @@ veya Windows'ta `-StrictPorts` port değişikliğini engeller.
 
 ## Docker Compose
 
+Production sunucuya geçiş, [Güvenli Deployment Rehberi](deployment.md) ile
+birlikte uygulanmalıdır. Bu dosyadaki Compose örneği local/staging başlangıcıdır.
+
 ```bash
 docker compose up --build
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
