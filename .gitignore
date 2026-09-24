@@ -65,6 +65,7 @@ dmypy.json
 *.log
 logs/
 *.log.*
+.run/
 
 # Database
 *.db

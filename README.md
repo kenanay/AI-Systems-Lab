@@ -166,6 +166,41 @@ docker-compose down -v
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 
+### Tek komutla local başlatma
+
+Backend ve frontend'i birlikte başlatmak için:
+
+```bash
+./scripts/start_app.sh start
+```
+
+Script dolu portları mevcut süreçleri durdurmadan algılar ve bir sonraki boş
+portu seçer. Frontend'in API adresi seçilen backend portuna otomatik bağlanır.
+
+```bash
+./scripts/start_app.sh status
+./scripts/start_app.sh stop
+./scripts/start_app.sh restart
+./scripts/start_app.sh start --detached
+./scripts/start_app.sh start --backend-port 8000 --frontend-port 3000 --strict-ports
+```
+
+Detached modda loglar `logs/backend.log` ve `logs/frontend.log` dosyalarına
+yazılır.
+
+Windows'ta PowerShell veya Komut İstemi üzerinden:
+
+```powershell
+.\scripts\start_app.cmd start
+.\scripts\start_app.cmd status
+.\scripts\start_app.cmd stop
+.\scripts\start_app.cmd restart
+.\scripts\start_app.cmd start -Detached
+```
+
+Windows launcher logları `logs/backend-windows.log` ve
+`logs/frontend-windows.log` dosyalarına yazar.
+
 **Avantajlar:**
 - ✅ Tek komutla başlatma
 - ✅ Dependency yönetimi yok
