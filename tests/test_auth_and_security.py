@@ -813,6 +813,52 @@ def test_concurrent_file_uploads_and_deletions(client):
         assert client.delete(f"/api/v1/files/{new_id}", headers=user_headers[1]).status_code == 204
 
 
+def test_deferred_content_cleanup_retries_after_storage_failure(monkeypatch):
+    """A failed physical delete remains durable and is cleaned on retry."""
+    from io import BytesIO
+    from backend.database import SessionLocal
+    from backend.models import ContentRecord
+    from backend.services.content_store import cleanup_deleting_content
+    from backend.storage import storage_manager
+    import uuid
+
+    db = SessionLocal()
+    file_id = f"cleanup-{uuid.uuid4().hex[:12]}"
+    relative_path, sha256 = storage_manager.save_file(
+        BytesIO(f"cleanup payload {file_id}".encode()),
+        "cleanup.txt",
+        file_id
+    )
+    record = ContentRecord(
+        sha256=sha256,
+        relative_path=str(relative_path),
+        size_bytes=1,
+        ref_count=0,
+        status="DELETING",
+    )
+    db.add(record)
+    db.commit()
+    original_delete = storage_manager.delete_file
+    try:
+        monkeypatch.setattr(storage_manager, "delete_file", lambda _: False)
+        cleaned, pending = cleanup_deleting_content(db)
+        assert cleaned == 0
+        assert pending == 1
+        assert db.query(ContentRecord).filter_by(sha256=sha256).one().status == "DELETING"
+
+        monkeypatch.setattr(storage_manager, "delete_file", original_delete)
+        cleaned, pending = cleanup_deleting_content(db)
+        assert (cleaned, pending) == (1, 0)
+        assert db.query(ContentRecord).filter_by(sha256=sha256).first() is None
+        assert storage_manager.file_exists(str(relative_path)) is False
+    finally:
+        db.query(ContentRecord).filter_by(sha256=sha256).delete(synchronize_session=False)
+        db.commit()
+        if storage_manager.file_exists(str(relative_path)):
+            original_delete(str(relative_path))
+        db.close()
+
+
 def test_sft_preflight_missing_response_column(tmp_path, monkeypatch):
     """SFT veri kümesinde 'instruction' bulunup zorunlu 'response' sütununun eksik olduğu durumda eğitimin engellendiğini doğrula."""
     import pyarrow as pa

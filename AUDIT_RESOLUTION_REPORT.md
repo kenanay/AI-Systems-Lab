@@ -2,8 +2,9 @@
 
 > **Durum notu:** Bu rapor `a42ac2b`/`7ce3abb` dönemindeki denetim sonuçlarını
 > içerir. Sonraki düzeltmelerde ContentRecord/FileRecord transaction sınırı,
-> upload-delete interleaving testi, SFT runtime şema uyumu ve repository
-> genelindeki checkpoint yükleme güvenliği güncellenmiştir. Güncel doğrulama,
+> upload-delete interleaving testi, başarısız fiziksel silmeler için durable
+> cleanup/GC, SFT runtime şema uyumu ve repository genelindeki checkpoint
+> yükleme güvenliği güncellenmiştir. Güncel doğrulama,
 > bu değişiklikleri içeren son commit ve CI çalışmasıyla birlikte okunmalıdır.
 
 **Tarih:** 24 Eylül 2026  
@@ -35,7 +36,7 @@ AI Systems Lab üzerinde gerçekleştirilen bağımsız güvenlik, veri bütünl
   1. [`backend/models.py`](file:///Users/asel/Documents/AI%20Systems%20Lab/backend/models.py) içerisinde bağımsız `ContentRecord` tablosu oluşturuldu (`sha256`, `relative_path`, `size_bytes`, `ref_count`, `status`).
   2. [`backend/routers/files.py`](file:///Users/asel/Documents/AI%20Systems%20Lab/backend/routers/files.py) içerisine süreç içi thread lock ve veritabanı satır kilidi (`with_for_update`) eklendi.
   3. **Yükleme:** Duplicate kontrolü, ContentRecord güncellemesi ve FileRecord oluşturulması aynı transaction içinde yapılır. Unique yarışlarında rollback sonrası retry uygulanır.
-  4. **Silme:** FileRecord silme, kalan referans sayımı ve ContentRecord kararı tek transaction içindedir. Fiziksel silme yalnızca commit sonrasında ve son referans yoksa yapılır.
+  4. **Silme:** FileRecord silme, kalan referans sayımı ve ContentRecord kararı tek transaction içindedir. Son referans silindiğinde ContentRecord önce `DELETING` tombstone'ı olarak commit edilir; fiziksel silme başarısız olursa startup cleanup/GC tekrar dener.
 
 ### 2.2. Eşzamanlı Yükleme ve Silme Testleri (P1)
 * **Kapsam:**
@@ -70,6 +71,7 @@ AI Systems Lab üzerinde gerçekleştirilen bağımsız güvenlik, veri bütünl
 ### 2.5. Dokümantasyon ve Tarihsel Rapor Senkronizasyonu
 * [`UYGULAMA_DEGERLENDIRME_RAPORU_2026-09-24.md`](file:///Users/asel/Documents/AI%20Systems%20Lab/UYGULAMA_DEGERLENDIRME_RAPORU_2026-09-24.md) dosyasının en üstüne arşiv uyarısı (`[!WARNING] TARİHSEL ARŞİV BİLDİRİMİ`) eklenerek, bu dosyanın `425edf2` sürümüne ait eski bir durum özeti olduğu ve güncel durum için `AUDIT_RESOLUTION_REPORT.md` dosyasının esas alınması gerektiği açıkça belirtildi.
 * Depo kökü ve dokümanlar güncel commit ve test metrikleriyle senkronize edildi.
+* `backend/services/content_store.py` startup cleanup işini ve başarısız fiziksel silmelerin yeniden denenmesini merkezi hale getirir.
 
 ---
 
@@ -84,4 +86,4 @@ Tüm test paketleri yerel ortamda ve CI üzerinde tam izolasyon altında çalı�
   - **16 Test Paketi / 83 Test Başarılı** (0 Hata, %100 Başarı Oranı)
   - Süre: ~2.8 saniye
 * **Eşzamanlılık ve Güvenlik:**
-  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tam başarıyla tamamlandı.
+  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup ve interleaving senaryoları da eklenmiştir.

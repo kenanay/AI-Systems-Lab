@@ -29,6 +29,8 @@ from fastapi.responses import JSONResponse
 
 from backend.config import settings
 from backend.database import init_db
+from backend.database import SessionLocal
+from backend.services.content_store import cleanup_deleting_content
 from backend.routers import files, datasets, tokenizer, datasets_compiler, training, models, inference, evaluation, embeddings, rag, tensor_lab, math_lab, transformer_lab, journey, systems_lab, synthetic_lab, nn_lab, auth, architecture_atlas
 
 # Logger yapılandırması
@@ -47,6 +49,12 @@ async def lifespan(app: FastAPI):
     settings.create_directories()
     logger.info("🗄️  Database initialize ediliyor...")
     init_db()
+    cleanup_db = SessionLocal()
+    try:
+        cleaned, pending = cleanup_deleting_content(cleanup_db)
+        logger.info("🧹 Content cleanup tamamlandı: %s temizlendi, %s beklemede", cleaned, pending)
+    finally:
+        cleanup_db.close()
     logger.info("📚 Steering dosyaları ve hook'lar yükleniyor...")
     logger.info("✅ API hazır!")
     yield

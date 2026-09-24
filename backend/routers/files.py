@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Any
 import logging
-import threading
 
 from backend.database import get_db
 from backend.models import FileRecord, DocumentRecord, UserRecord, ContentRecord
@@ -37,12 +36,13 @@ from backend.schemas import (
     FileMetadataUpdate,
 )
 from backend.services.ingestion_service import ingestion_service
+from backend.services.content_store import content_store_lock, cleanup_deleting_content
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
 
-_content_store_lock = threading.Lock()
+_content_store_lock = content_store_lock
 
 
 @router.post("/upload", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -165,6 +165,19 @@ async def upload_file(
                     content_rec = db.query(ContentRecord).filter(
                         ContentRecord.sha256 == sha256
                     ).with_for_update().first()
+                    if content_rec and content_rec.status == "DELETING":
+                        # A previous physical delete failed. Retry it before
+                        # reusing the content hash; otherwise a new FileRecord
+                        # could race with deletion of the old path.
+                        removed = storage_manager.delete_file(content_rec.relative_path)
+                        if not removed and storage_manager.file_exists(content_rec.relative_path):
+                            raise HTTPException(
+                                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                detail="İçerik temizleme işlemi beklemede; lütfen tekrar deneyin."
+                            )
+                        db.delete(content_rec)
+                        db.flush()
+                        content_rec = None
                     has_content = (
                         content_rec is not None
                         and content_rec.status == "ACTIVE"
@@ -374,7 +387,6 @@ def delete_file(
                 content_rec.ref_count = remaining_file_records
                 if remaining_file_records <= 0:
                     content_rec.status = "DELETING"
-                    db.delete(content_rec)
                     should_delete_physical = True
             else:
                 # ContentRecord kaydı henüz bulunmayan dosyalar için güvenli fallback
@@ -384,11 +396,26 @@ def delete_file(
         finally:
             principal.reset(token)
 
-        # Fiziksel silme commit'ten sonra yapılır; yeni upload artık aynı
-        # ContentRecord'ı yeniden kullanamaz ve farklı bir yol tahsis eder.
+        # Fiziksel silme commit'ten sonra yapılır. Başarısız olursa DELETING
+        # tombstone'ı kalır ve startup GC tekrar dener.
         if should_delete_physical:
-            storage_manager.delete_file(rel_path)
-            logger.info(f"Fiziksel dosya ve son referans silindi: {rel_path} (ID: {file_id})")
+            removed = storage_manager.delete_file(rel_path)
+            if removed or not storage_manager.file_exists(rel_path):
+                token = principal.set(Principal("system", "admin"))
+                try:
+                    pending = db.query(ContentRecord).filter(
+                        ContentRecord.sha256 == file_sha,
+                        ContentRecord.status == "DELETING",
+                        ContentRecord.relative_path == rel_path,
+                    ).with_for_update().first()
+                    if pending:
+                        db.delete(pending)
+                        db.commit()
+                finally:
+                    principal.reset(token)
+                logger.info(f"Fiziksel dosya ve son referans silindi: {rel_path} (ID: {file_id})")
+            else:
+                logger.error(f"Fiziksel dosya silinemedi; cleanup beklemede: {rel_path} (ID: {file_id})")
         else:
             logger.info(
                 f"Kullanıcı dosya kaydı ({file_id}) silindi. "
