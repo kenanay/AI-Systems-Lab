@@ -4,6 +4,7 @@ import tempfile
 import torch
 
 from src.registry.model_registry import ModelRegistry, ModelMetadata
+from src.model.gpt import GPTConfig, GPTModel
 
 
 def test_model_registry_integrity_verification():
@@ -74,6 +75,40 @@ def test_inference_pipeline_rejects_executable_checkpoints(tmp_path):
         InferencePipeline.from_pretrained(checkpoint, tmp_path / "unused-tokenizer.json")
 
     assert not flag_file.exists()
+
+
+def test_legacy_gpt_config_checkpoint_remains_loadable(tmp_path):
+    """Legacy checkpoints storing GPTConfig objects still load through the safe allowlist."""
+    config = GPTConfig(
+        vocab_size=32,
+        max_seq_len=8,
+        d_model=16,
+        n_layers=1,
+        n_heads=2,
+        d_ff=32,
+        dropout=0.0,
+    )
+    checkpoint = tmp_path / "legacy-gpt.pt"
+    torch.save(
+        {
+            "model_state_dict": GPTModel(config).state_dict(),
+            "config": config,
+            "epoch": 3,
+        },
+        checkpoint,
+    )
+
+    registry = ModelRegistry(tmp_path / "registry")
+    registry.register_model(
+        model_name="legacy-gpt",
+        version="1.0.0",
+        checkpoint_path=checkpoint,
+    )
+    loaded = registry.load_model("legacy-gpt", version="1.0.0", load_weights=True)
+
+    assert isinstance(loaded["full_checkpoint"]["config"], GPTConfig)
+    assert loaded["full_checkpoint"]["epoch"] == 3
+    assert loaded["state_dict"]
 
 
 def test_artifact_compatibility_endpoint():
@@ -223,6 +258,5 @@ def test_artifact_compatibility_endpoint():
     assert data_missing_meta["compatible"] is False
     assert data_missing_meta["status"] == "verification_failed"
     assert any("zorunlu sözlük boyutu" in w or "eksik" in w for w in data_missing_meta["warnings"])
-
 
 

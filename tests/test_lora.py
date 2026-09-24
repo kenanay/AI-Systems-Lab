@@ -576,7 +576,7 @@ class TestSaveLoadWeights:
             assert os.path.exists(save_path)
             
             # Load and check content
-            state_dict = torch.load(save_path)
+            state_dict = torch.load(save_path, weights_only=True)
             
             # Should have 4 keys (2 layers × 2 matrices)
             assert len(state_dict) == 4

@@ -89,6 +89,20 @@ def test_password_hashing_and_verification():
     assert verify_password(raw_pass, "") is False
 
 
+def test_production_sqlite_multi_worker_configuration_is_rejected():
+    """SQLite cannot provide the cross-process row locking required by multiple workers."""
+    from pydantic import ValidationError
+    from backend.config import Settings
+
+    with pytest.raises(ValidationError, match="multi-worker"):
+        Settings(
+            environment="production",
+            secret_key="production-secret-key-that-is-long-enough-for-tests",
+            database_url="sqlite:///./production.db",
+            backend_workers=2,
+        )
+
+
 def test_password_tamper_resistance():
     raw_pass = "Test1234!"
     hashed = hash_password(raw_pass)

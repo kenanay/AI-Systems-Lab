@@ -475,7 +475,7 @@ class TestEndToEndTurkishGPT:
         print(f"✓ 1. Epoch tamamlandı (Loss: {epoch1_loss:.4f}), Checkpoint kaydedildi: {chk_path_1.name}")
 
         # 5. CHECKPOINT RESUME: Yeni model & optimizer oluşturup checkpoint durumunu yükle
-        resume_checkpoint = torch.load(chk_path_1, weights_only=False)
+        resume_checkpoint = torch.load(chk_path_1, weights_only=True)
         assert "model_state_dict" in resume_checkpoint
         assert "optimizer_state_dict" in resume_checkpoint
         assert resume_checkpoint["epoch"] == 1
@@ -555,7 +555,7 @@ class TestEndToEndTurkishGPT:
         assert TestEndToEndTurkishGPT.checkpoint_path is not None
         assert TestEndToEndTurkishGPT.checkpoint_path.exists()
 
-        checkpoint = torch.load(TestEndToEndTurkishGPT.checkpoint_path, weights_only=False)
+        checkpoint = torch.load(TestEndToEndTurkishGPT.checkpoint_path, weights_only=True)
         cfg_dict = checkpoint["config"]
         config = GPTConfig(
             vocab_size=cfg_dict["vocab_size"],

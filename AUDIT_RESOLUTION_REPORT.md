@@ -72,6 +72,8 @@ AI Systems Lab üzerinde gerçekleştirilen bağımsız güvenlik, veri bütünl
 * [`UYGULAMA_DEGERLENDIRME_RAPORU_2026-09-24.md`](file:///Users/asel/Documents/AI%20Systems%20Lab/UYGULAMA_DEGERLENDIRME_RAPORU_2026-09-24.md) dosyasının en üstüne arşiv uyarısı (`[!WARNING] TARİHSEL ARŞİV BİLDİRİMİ`) eklenerek, bu dosyanın `425edf2` sürümüne ait eski bir durum özeti olduğu ve güncel durum için `AUDIT_RESOLUTION_REPORT.md` dosyasının esas alınması gerektiği açıkça belirtildi.
 * Depo kökü ve dokümanlar güncel commit ve test metrikleriyle senkronize edildi.
 * `backend/services/content_store.py` cleanup işini ve başarısız fiziksel silmelerin yeniden denenmesini merkezi hale getirir. `CONTENT_CLEANUP_INTERVAL_SECONDS` ile API süreci çalışırken periyodik tekrar denemesi yapılandırılabilir.
+* Üretimde `BACKEND_WORKERS > 1` ve SQLite birlikte kullanılırsa yapılandırma reddedilir; çok worker için PostgreSQL gibi süreçler arası satır kilidi sağlayan bir veritabanı gerekir.
+* Eski `GPTConfig` nesnesini içeren checkpoint formatı güvenli allowlist ile yüklenerek CI testine alınmıştır; gerçek mini-SFT ve uçtan uca checkpoint akışı da mevcut entegrasyon testlerinde doğrulanır.
 
 ---
 
@@ -86,4 +88,4 @@ Tüm test paketleri yerel ortamda ve CI üzerinde tam izolasyon altında çalı�
   - **16 Test Paketi / 83 Test Başarılı** (0 Hata, %100 Başarı Oranı)
   - Süre: ~2.8 saniye
 * **Eşzamanlılık ve Güvenlik:**
-  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup, interleaving, ayrı Python process ve upload/delete karma süreç senaryoları da eklenmiştir. Güncel CI sonucu beklenmelidir.
+  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup, interleaving, ayrı Python process, upload/delete karma süreç ve üretim veritabanı yapılandırma senaryoları da eklenmiştir. Güncel CI sonucu beklenmelidir.

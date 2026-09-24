@@ -32,6 +32,11 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires a unique JWT secret of at least 32 characters")
             if self.seed_demo_users:
                 raise ValueError("Demo accounts are forbidden in production")
+            if self.database_url.startswith("sqlite") and self.backend_workers > 1:
+                raise ValueError(
+                    "Production multi-worker deployments require PostgreSQL or another "
+                    "database with cross-process row locking; SQLite is limited to one worker"
+                )
             self.cookie_secure = True
         return self
 
@@ -39,6 +44,7 @@ class Settings(BaseSettings):
     backend_host: str = Field(default="localhost", alias="BACKEND_HOST")
     backend_port: int = Field(default=8000, alias="BACKEND_PORT")
     backend_reload: bool = Field(default=True, alias="BACKEND_RELOAD")
+    backend_workers: int = Field(default=1, ge=1, alias="BACKEND_WORKERS")
     
     # Database
     database_url: str = Field(
