@@ -6,6 +6,7 @@ Dosya yükleme, listeleme ve yönetimi endpoint'leri.
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Any
 import logging
 import threading
@@ -126,92 +127,121 @@ async def upload_file(
     sha256 = sha256_hash.hexdigest()
     logger.info(f"SHA-256: {sha256}")
     
-    # 5. Duplicate kontrolü (Kullanıcı bazlı izolasyon)
-    # Aynı kullanıcı daha önce aynı dosyayı yüklemişse kendi kaydını döndür
+    # 5-8. Duplicate kontrolü, content refcount ve FileRecord aynı transaction
+    # içinde yürütülür. Böylece ContentRecord hiçbir zaman FileRecord olmadan
+    # refcount=1 durumunda kalmaz.
     current_user_id = str(current_user.user_id) if current_user and current_user.user_id else None
-    user_query = db.query(FileRecord).filter(FileRecord.sha256 == sha256)
-    if current_user_id:
-        user_existing = user_query.filter(FileRecord.owner_id == current_user_id).first()
-    else:
-        user_existing = user_query.filter(FileRecord.owner_id.is_(None)).first()
-
-    if user_existing:
-        logger.warning(f"Duplicate dosya tespit edildi (kullanıcıya ait): {user_existing.file_id}")
-        return FileUploadResponse(
-            file_id=user_existing.file_id,
-            filename=user_existing.original_name,
-            size_bytes=user_existing.size_bytes,
-            mime_type=user_existing.mime_type,
-            sha256=user_existing.sha256,
-            is_duplicate=True,
-            message="Bu dosya daha önce sizin tarafınızdan yüklenmiş (duplicate)."
-        )
-    
-    # 6. File ID üret
     file_id = generate_file_id()
-    
-    # 7. Fiziksel içerik kontrolü ve kaydetme (Content Store atomic deduplication)
-    # Aynı içerik için ContentRecord ve kilit üzerinden yarış durumlarını (race condition) engelle
+
+    duplicate_response = None
+    created_relative_path = None
     with _content_store_lock:
         token = principal.set(Principal("system", "admin"))
         try:
-            content_rec = db.query(ContentRecord).filter(ContentRecord.sha256 == sha256).first()
-            if content_rec and content_rec.status == "ACTIVE" and storage_manager.file_exists(content_rec.relative_path):
-                relative_path = content_rec.relative_path
-                content_rec.ref_count += 1
-                db.commit()
-                logger.info(f"Mevcut ContentRecord yeniden kullanıldı: {relative_path} (ref_count={content_rec.ref_count})")
-            else:
-                from io import BytesIO
-                file_stream = BytesIO(file_content)
-                rel_path_obj, calculated_sha256 = storage_manager.save_file(
-                    file_stream,
-                    filename,
-                    file_id
-                )
-                relative_path = str(rel_path_obj)
-                if sha256 != calculated_sha256:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="SHA-256 uyuşmazlığı tespit edildi"
+            for attempt in range(2):
+                try:
+                    user_query = db.query(FileRecord).filter(FileRecord.sha256 == sha256)
+                    if current_user_id:
+                        user_existing = user_query.filter(FileRecord.owner_id == current_user_id).first()
+                    else:
+                        user_existing = user_query.filter(FileRecord.owner_id.is_(None)).first()
+
+                    if user_existing:
+                        logger.warning(f"Duplicate dosya tespit edildi (kullanıcıya ait): {user_existing.file_id}")
+                        duplicate_response = FileUploadResponse(
+                            file_id=user_existing.file_id,
+                            filename=user_existing.original_name,
+                            size_bytes=user_existing.size_bytes,
+                            mime_type=user_existing.mime_type,
+                            sha256=user_existing.sha256,
+                            is_duplicate=True,
+                            message="Bu dosya daha önce sizin tarafınızdan yüklenmiş (duplicate)."
+                        )
+                        break
+
+                    # PostgreSQL'de mevcut satırı kilitle; SQLite'ta transaction
+                    # yazarı serialize eder. Eksik satırdaki unique yarışını da
+                    # aşağıdaki IntegrityError retry'i karşılar.
+                    content_rec = db.query(ContentRecord).filter(
+                        ContentRecord.sha256 == sha256
+                    ).with_for_update().first()
+                    has_content = (
+                        content_rec is not None
+                        and content_rec.status == "ACTIVE"
+                        and storage_manager.file_exists(content_rec.relative_path)
                     )
-                if content_rec:
-                    content_rec.relative_path = relative_path
-                    content_rec.ref_count = 1
-                    content_rec.status = "ACTIVE"
-                    content_rec.size_bytes = file_size
-                else:
-                    content_rec = ContentRecord(
-                        sha256=sha256,
-                        relative_path=relative_path,
+
+                    if has_content:
+                        relative_path = content_rec.relative_path
+                        content_rec.ref_count += 1
+                    else:
+                        from io import BytesIO
+                        file_stream = BytesIO(file_content)
+                        rel_path_obj, calculated_sha256 = storage_manager.save_file(
+                            file_stream,
+                            filename,
+                            file_id
+                        )
+                        relative_path = str(rel_path_obj)
+                        created_relative_path = relative_path
+                        if sha256 != calculated_sha256:
+                            raise HTTPException(
+                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail="SHA-256 uyuşmazlığı tespit edildi"
+                            )
+                        if content_rec:
+                            content_rec.relative_path = relative_path
+                            content_rec.ref_count = 0
+                            content_rec.status = "ACTIVE"
+                            content_rec.size_bytes = file_size
+                        else:
+                            content_rec = ContentRecord(
+                                sha256=sha256,
+                                relative_path=relative_path,
+                                size_bytes=file_size,
+                                ref_count=0,
+                                status="ACTIVE"
+                            )
+                            db.add(content_rec)
+                        content_rec.ref_count += 1
+
+                    file_record = FileRecord(
+                        file_id=file_id,
+                        owner_id=current_user_id,
+                        original_name=filename,
+                        relative_path=str(relative_path),
+                        mime_type=mime_type,
                         size_bytes=file_size,
-                        ref_count=1,
-                        status="ACTIVE"
+                        sha256=sha256,
+                        parser_name=None,
+                        parser_version=None,
+                        security_level="INTERNAL",
+                        pii_detected=False,
+                        training_allowed=False,
                     )
-                    db.add(content_rec)
-                db.commit()
+                    db.add(file_record)
+                    db.flush()
+                    db.commit()
+                    db.refresh(file_record)
+                    break
+                except IntegrityError:
+                    db.rollback()
+                    if created_relative_path:
+                        storage_manager.delete_file(created_relative_path)
+                        created_relative_path = None
+                    if attempt == 1:
+                        raise
+                except Exception:
+                    db.rollback()
+                    if created_relative_path:
+                        storage_manager.delete_file(created_relative_path)
+                        created_relative_path = None
+                    raise
         finally:
             principal.reset(token)
-    
-    # 8. Kullanıcıya özel bağımsız FileRecord kaydı
-    file_record = FileRecord(
-        file_id=file_id,
-        owner_id=current_user_id,
-        original_name=filename,
-        relative_path=str(relative_path),
-        mime_type=mime_type,
-        size_bytes=file_size,
-        sha256=sha256,
-        parser_name=None,  # Henüz parse edilmedi
-        parser_version=None,
-        security_level="INTERNAL",  # Default
-        pii_detected=False,  # Henüz taranmadı
-        training_allowed=False,  # Default: izin yok
-    )
-    
-    db.add(file_record)
-    db.commit()
-    db.refresh(file_record)
+
+    if duplicate_response is not None:
+        return duplicate_response
     
     logger.info(f"Dosya kullanıcı için başarıyla kaydedildi: {file_id} (owner: {current_user_id})")
     
@@ -327,15 +357,17 @@ def delete_file(
     file_sha = file_record.sha256
 
     with _content_store_lock:
-        # Kullanıcının FileRecord kaydını sil
-        db.delete(file_record)
-        db.commit()
-
-        # 2. ContentRecord üzerinden atomik referans sayımı ve durum yönetimi
         token = principal.set(Principal("system", "admin"))
         should_delete_physical = False
         try:
-            content_rec = db.query(ContentRecord).filter(ContentRecord.sha256 == file_sha).first()
+            # FileRecord silme ve refcount kararı aynı DB transaction'ında
+            # yapılır. Böylece upload transaction'ı ile kesiştiğinde hiçbir
+            # gözlemci yarım güncellenmiş ContentRecord göremez.
+            db.delete(file_record)
+            db.flush()
+            content_rec = db.query(ContentRecord).filter(
+                ContentRecord.sha256 == file_sha
+            ).with_for_update().first()
             remaining_file_records = db.query(FileRecord).filter(FileRecord.sha256 == file_sha).count()
 
             if content_rec:
@@ -343,18 +375,17 @@ def delete_file(
                 if remaining_file_records <= 0:
                     content_rec.status = "DELETING"
                     db.delete(content_rec)
-                    db.commit()
                     should_delete_physical = True
-                else:
-                    db.commit()
             else:
                 # ContentRecord kaydı henüz bulunmayan dosyalar için güvenli fallback
                 if remaining_file_records == 0:
                     should_delete_physical = True
+            db.commit()
         finally:
             principal.reset(token)
 
-        # 3. Yalnızca hiçbir aktif referans kalmadığında fiziksel dosyayı sil
+        # Fiziksel silme commit'ten sonra yapılır; yeni upload artık aynı
+        # ContentRecord'ı yeniden kullanamaz ve farklı bir yol tahsis eder.
         if should_delete_physical:
             storage_manager.delete_file(rel_path)
             logger.info(f"Fiziksel dosya ve son referans silindi: {rel_path} (ID: {file_id})")

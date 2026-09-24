@@ -686,6 +686,12 @@ def test_malicious_checkpoint_weights_only_blocking(tmp_path, client):
     with pytest.raises(Exception):
         torch.load(chk_path, weights_only=True)
 
+    # InferencePipeline'ın gerçek checkpoint giriş noktasını da doğrudan
+    # doğrula; yalnızca bilinmeyen model için 400 dönmesi yeterli değildir.
+    from src.inference.pipeline import InferencePipeline
+    with pytest.raises(ValueError, match="weights_only=True"):
+        InferencePipeline.from_pretrained(chk_path, tmp_path / "unused-tokenizer.json")
+
     # 3. Inference /load API endpoint'i üzerinden çağrıldığında HTTP 400 döndürüldüğünü doğrula
     login = client.post("/api/v1/auth/login", json={"username_or_email": "admin", "password": "admin"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -767,6 +773,45 @@ def test_concurrent_file_uploads_and_deletions(client):
     # Artık tüm referanslar bittiğinden fiziksel dosya da temizlenmiş olmalıdır
     assert storage_manager.file_exists(rel_path) is False
 
+    # Upload ve son referansın silinmesi kesiştiğinde yeni kaydın fiziksel
+    # dosyası silinmemelidir. Bu, yalnızca "önce tüm upload, sonra tüm delete"
+    # senaryosundan daha güçlü bir interleaving kontrolüdür.
+    from threading import Barrier
+    for round_no in range(3):
+        race_content = f"Interleaved upload/delete {uuid.uuid4()}".encode()
+        baseline = client.post(
+            "/api/v1/files/upload",
+            files={"file": (f"race-base-{round_no}.txt", race_content, "text/plain")},
+            headers=user_headers[0]
+        )
+        assert baseline.status_code == 201
+        baseline_id = baseline.json()["file_id"]
+        barrier = Barrier(2)
+
+        def upload_during_delete():
+            barrier.wait()
+            return client.post(
+                "/api/v1/files/upload",
+                files={"file": (f"race-new-{round_no}.txt", race_content, "text/plain")},
+                headers=user_headers[1]
+            )
+
+        def delete_during_upload():
+            barrier.wait()
+            return client.delete(f"/api/v1/files/{baseline_id}", headers=user_headers[0])
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            upload_result, delete_result = list(executor.map(
+                lambda fn: fn(), (upload_during_delete, delete_during_upload)
+            ))
+        assert upload_result.status_code == 201
+        assert delete_result.status_code == 204
+        new_id = upload_result.json()["file_id"]
+        new_info = client.get(f"/api/v1/files/{new_id}", headers=user_headers[1])
+        assert new_info.status_code == 200
+        assert storage_manager.file_exists(new_info.json()["relative_path"]) is True
+        assert client.delete(f"/api/v1/files/{new_id}", headers=user_headers[1]).status_code == 204
+
 
 def test_sft_preflight_missing_response_column(tmp_path, monkeypatch):
     """SFT veri kümesinde 'instruction' bulunup zorunlu 'response' sütununun eksik olduğu durumda eğitimin engellendiğini doğrula."""
@@ -847,6 +892,34 @@ def test_sft_preflight_missing_response_column(tmp_path, monkeypatch):
                 config={"epochs": 1, "vocab_size": 200}
             )
 
+        # token_ids SFT için geçerli bir alternatif değildir; runtime bu
+        # formatı değil instruction/response veya JSON text formatını okur.
+        token_only_table = pa.Table.from_pydict({
+            "instruction": ["Soru 1", "Soru 2"],
+            "token_ids": [[1, 2], [3, 4]],
+            "split": ["train", "validation"]
+        })
+        token_only_parquet = tmp_path / "token_only_sft.parquet"
+        pq.write_table(token_only_table, token_only_parquet)
+        monkeypatch.setattr(
+            "backend.services.training_service.load_artifacts",
+            lambda db, did, tid: (
+                DatasetVersion(dataset_id="ds-token-only", storage_path=str(token_only_parquet)),
+                tok_record,
+                None,
+                {}
+            )
+        )
+        with pytest.raises(ValueError, match="zorunlu 'response' sütunu eksik"):
+            service.create_job(
+                job_name="Token Only SFT Schema Test",
+                model_name="sft-schema-token-only-model",
+                job_type="SFT",
+                dataset_id="ds-token-only",
+                tokenizer_id="tok-1",
+                config={"epochs": 1, "vocab_size": 200}
+            )
+
         # 3. Hem instruction hem response içeren geçerli şema -> Şema doğrulaması başarıyla geçmeli
         # (Şema kontrolünü geçtiği için bir sonraki preflight adımı olan base_model gereksinimine ulaşır)
         monkeypatch.setattr(
@@ -870,6 +943,3 @@ def test_sft_preflight_missing_response_column(tmp_path, monkeypatch):
 
     finally:
         db.close()
-
-
-

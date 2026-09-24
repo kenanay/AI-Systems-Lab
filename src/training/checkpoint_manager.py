@@ -359,7 +359,7 @@ class CheckpointManager:
         logger.info(f"Loading checkpoint: {path.name}")
         
         # Load checkpoint
-        checkpoint = torch.load(path, map_location='cpu')
+        checkpoint = torch.load(path, map_location='cpu', weights_only=True)
         
         # Verify integrity
         metadata_path = self.metadata_dir / f"{path.name}.json"

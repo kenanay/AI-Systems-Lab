@@ -232,7 +232,7 @@ class CheckpointManager:
             raise FileNotFoundError(f"Checkpoint not found: {path}")
         
         # Load checkpoint
-        checkpoint = torch.load(path, map_location=device)
+        checkpoint = torch.load(path, map_location=device, weights_only=True)
         
         # Load model state
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -276,7 +276,7 @@ class CheckpointManager:
             logger.warning("Best model checkpoint not found")
             return None
         
-        checkpoint = torch.load(best_path, map_location=device)
+        checkpoint = torch.load(best_path, map_location=device, weights_only=True)
         model.load_state_dict(checkpoint['model_state_dict'])
         
         logger.info(
@@ -404,7 +404,7 @@ def load_model_only(
     Example:
         >>> load_model_only(model, 'models/gpt_turkish.pt')
     """
-    checkpoint = torch.load(load_path, map_location=device)
+    checkpoint = torch.load(load_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     logger.info(f"Model loaded: {load_path}")

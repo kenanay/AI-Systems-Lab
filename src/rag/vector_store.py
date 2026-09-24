@@ -272,7 +272,7 @@ class VectorStore:
 
         vec_path = path / "vectors.pt"
         if vec_path.exists():
-            store.vectors = torch.load(vec_path, map_location="cpu")
+            store.vectors = torch.load(vec_path, map_location="cpu", weights_only=True)
             if store.use_faiss and store.d_model is not None and store.vectors is not None:
                 store._init_faiss(store.d_model)
                 if store.faiss_index is not None:

@@ -116,17 +116,29 @@ class TrainingService:
                 if "token_ids" not in schema.names:
                     raise ValueError("Pretrain veri kümesinde zorunlu 'token_ids' sütunu bulunamadı.")
             elif job_type in {'FULL_SFT', 'LORA_SFT'}:
-                # SFT instruction dataset formatı:
-                # 1) 'instruction' ve 'response' sütunları bir arada bulunmalıdır
-                # 2) veya JSON satırları içeren 'text' sütunu bulunmalıdır
-                # 3) veya derlenmiş 'token_ids' bulunmalıdır
-                has_instr_resp = ("instruction" in schema.names and "response" in schema.names)
+                # SFT runtime yalnızca iki gerçek şemayı destekler:
+                # (instruction, response) kolonları veya response içeren JSON
+                # kayıtları taşıyan text kolonu. token_ids yalnızca PRETRAIN
+                # akışına aittir; aksi halde preflight geçip runtime'da
+                # row['response'] / row['text'] hatası oluşabiliyordu.
+                has_instruction = "instruction" in schema.names
+                has_response = "response" in schema.names
                 has_text = "text" in schema.names
-                has_tokens = "token_ids" in schema.names
-                if not (has_instr_resp or has_text or has_tokens):
-                    if "instruction" in schema.names and "response" not in schema.names:
-                        raise ValueError("SFT veri kümesinde 'instruction' sütunu mevcut ancak zorunlu 'response' sütunu eksik!")
+                if has_instruction and not has_response:
+                    raise ValueError("SFT veri kümesinde 'instruction' sütunu mevcut ancak zorunlu 'response' sütunu eksik!")
+                if not (has_instruction and has_response) and not has_text:
                     raise ValueError("SFT veri kümesinde zorunlu ('instruction', 'response') veya 'text' sütunları bulunamadı.")
+
+                if has_text and not (has_instruction and has_response):
+                    text_rows = pq.read_table(ds.storage_path, columns=["text"]).to_pylist()
+                    for row in text_rows:
+                        raw = row.get("text")
+                        try:
+                            parsed = json.loads(raw) if isinstance(raw, str) else raw
+                        except (TypeError, json.JSONDecodeError) as exc:
+                            raise ValueError("SFT 'text' sütunundaki her kayıt geçerli JSON olmalıdır.") from exc
+                        if not isinstance(parsed, dict) or not parsed.get("instruction") or "response" not in parsed:
+                            raise ValueError("SFT 'text' kayıtları instruction ve response alanlarını birlikte içermelidir.")
 
             if "token_ids" in schema.names:
                 import pandas as pd

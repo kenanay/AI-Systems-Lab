@@ -496,7 +496,7 @@ def load_lora_weights(model: nn.Module, path: str):
         model: Model with LoRA adapters
         path: Load path
     """
-    lora_state_dict = torch.load(path)
+    lora_state_dict = torch.load(path, weights_only=True)
     
     loaded_count = 0
     for name, module in model.named_modules():

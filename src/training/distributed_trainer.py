@@ -523,7 +523,7 @@ class DistributedTrainer:
         # Map location
         map_location = {'cuda:0': f'cuda:{self.config.local_rank}'} if torch.cuda.is_available() else 'cpu'
         
-        checkpoint = torch.load(path, map_location=map_location)
+        checkpoint = torch.load(path, map_location=map_location, weights_only=True)
         
         if self.ddp_model is None:
             raise RuntimeError("Model not set. Call setup() first.")
