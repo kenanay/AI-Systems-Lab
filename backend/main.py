@@ -8,6 +8,8 @@ Location: Kütahya, TÜRKİYE
 Version: 1.2.0
 """
 
+import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from typing import Dict, Any
@@ -41,6 +43,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _run_content_cleanup() -> None:
+    """Run one durable content-store cleanup pass in an isolated session."""
+    cleanup_db = SessionLocal()
+    try:
+        cleaned, pending = cleanup_deleting_content(cleanup_db)
+        logger.info(
+            "🧹 Content cleanup tamamlandı: %s temizlendi, %s beklemede",
+            cleaned,
+            pending,
+        )
+    finally:
+        cleanup_db.close()
+
+
+async def _content_cleanup_loop() -> None:
+    """Retry deferred physical deletions while the API process is running."""
+    while True:
+        await asyncio.sleep(settings.content_cleanup_interval_seconds)
+        try:
+            await asyncio.to_thread(_run_content_cleanup)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Periyodik content cleanup başarısız oldu")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Uygulama yaşam döngüsü yöneticisi."""
@@ -49,16 +77,17 @@ async def lifespan(app: FastAPI):
     settings.create_directories()
     logger.info("🗄️  Database initialize ediliyor...")
     init_db()
-    cleanup_db = SessionLocal()
-    try:
-        cleaned, pending = cleanup_deleting_content(cleanup_db)
-        logger.info("🧹 Content cleanup tamamlandı: %s temizlendi, %s beklemede", cleaned, pending)
-    finally:
-        cleanup_db.close()
+    _run_content_cleanup()
+    cleanup_task = asyncio.create_task(_content_cleanup_loop())
     logger.info("📚 Steering dosyaları ve hook'lar yükleniyor...")
     logger.info("✅ API hazır!")
-    yield
-    logger.info("👋 Local AI Research Lab API kapatılıyor...")
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup_task
+        logger.info("👋 Local AI Research Lab API kapatılıyor...")
 
 
 # FastAPI uygulaması

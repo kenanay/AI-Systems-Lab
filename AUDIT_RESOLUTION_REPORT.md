@@ -36,7 +36,7 @@ AI Systems Lab üzerinde gerçekleştirilen bağımsız güvenlik, veri bütünl
   1. [`backend/models.py`](file:///Users/asel/Documents/AI%20Systems%20Lab/backend/models.py) içerisinde bağımsız `ContentRecord` tablosu oluşturuldu (`sha256`, `relative_path`, `size_bytes`, `ref_count`, `status`).
   2. [`backend/routers/files.py`](file:///Users/asel/Documents/AI%20Systems%20Lab/backend/routers/files.py) içerisine süreç içi thread lock ve veritabanı satır kilidi (`with_for_update`) eklendi.
   3. **Yükleme:** Duplicate kontrolü, ContentRecord güncellemesi ve FileRecord oluşturulması aynı transaction içinde yapılır. Unique yarışlarında rollback sonrası retry uygulanır.
-  4. **Silme:** FileRecord silme, kalan referans sayımı ve ContentRecord kararı tek transaction içindedir. Son referans silindiğinde ContentRecord önce `DELETING` tombstone'ı olarak commit edilir; fiziksel silme başarısız olursa startup cleanup/GC tekrar dener.
+  4. **Silme:** FileRecord silme, kalan referans sayımı ve ContentRecord kararı tek transaction içindedir. Son referans silindiğinde ContentRecord önce `DELETING` tombstone'ı olarak commit edilir; fiziksel silme başarısız olursa başlangıç temizliği ve API çalışırken periyodik GC tekrar dener.
 
 ### 2.2. Eşzamanlı Yükleme ve Silme Testleri (P1)
 * **Kapsam:**
@@ -71,7 +71,7 @@ AI Systems Lab üzerinde gerçekleştirilen bağımsız güvenlik, veri bütünl
 ### 2.5. Dokümantasyon ve Tarihsel Rapor Senkronizasyonu
 * [`UYGULAMA_DEGERLENDIRME_RAPORU_2026-09-24.md`](file:///Users/asel/Documents/AI%20Systems%20Lab/UYGULAMA_DEGERLENDIRME_RAPORU_2026-09-24.md) dosyasının en üstüne arşiv uyarısı (`[!WARNING] TARİHSEL ARŞİV BİLDİRİMİ`) eklenerek, bu dosyanın `425edf2` sürümüne ait eski bir durum özeti olduğu ve güncel durum için `AUDIT_RESOLUTION_REPORT.md` dosyasının esas alınması gerektiği açıkça belirtildi.
 * Depo kökü ve dokümanlar güncel commit ve test metrikleriyle senkronize edildi.
-* `backend/services/content_store.py` startup cleanup işini ve başarısız fiziksel silmelerin yeniden denenmesini merkezi hale getirir.
+* `backend/services/content_store.py` cleanup işini ve başarısız fiziksel silmelerin yeniden denenmesini merkezi hale getirir. `CONTENT_CLEANUP_INTERVAL_SECONDS` ile API süreci çalışırken periyodik tekrar denemesi yapılandırılabilir.
 
 ---
 
@@ -86,4 +86,4 @@ Tüm test paketleri yerel ortamda ve CI üzerinde tam izolasyon altında çalı�
   - **16 Test Paketi / 83 Test Başarılı** (0 Hata, %100 Başarı Oranı)
   - Süre: ~2.8 saniye
 * **Eşzamanlılık ve Güvenlik:**
-  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup, interleaving ve ayrı Python process senaryoları da eklenmiştir. Güncel CI sonucu beklenmelidir.
+  - 18 Güvenlik & Yetkilendirme Testi (`tests/test_auth_and_security.py`) tarihsel CI sonucunda tamamlandı; güncel sürümde cleanup, interleaving, ayrı Python process ve upload/delete karma süreç senaryoları da eklenmiştir. Güncel CI sonucu beklenmelidir.

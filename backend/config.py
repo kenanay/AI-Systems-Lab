@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_file: Optional[Path] = Field(default=Path("./logs/app.log"), alias="LOG_FILE")
+
+    # Content store maintenance
+    content_cleanup_interval_seconds: int = Field(
+        default=300,
+        ge=10,
+        alias="CONTENT_CLEANUP_INTERVAL_SECONDS",
+    )
     
     # Feature Flags
     pii_detection_enabled: bool = Field(default=True, alias="PII_DETECTION_ENABLED")

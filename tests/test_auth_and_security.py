@@ -38,9 +38,9 @@ def _multiprocess_upload(owner_id, payload, filename, result_queue):
             db,
             SimpleNamespace(user_id=owner_id, role="researcher")
         ))
-        result_queue.put(("ok", response.file_id))
+        result_queue.put(("upload_ok", owner_id, response.file_id))
     except Exception as exc:
-        result_queue.put(("error", repr(exc)))
+        result_queue.put(("upload_error", owner_id, repr(exc)))
     finally:
         db.close()
 
@@ -54,9 +54,9 @@ def _multiprocess_delete(file_id, owner_id, result_queue):
     db = SessionLocal()
     try:
         delete_file(file_id, db, SimpleNamespace(user_id=owner_id, role="researcher"))
-        result_queue.put(("ok", file_id))
+        result_queue.put(("delete_ok", owner_id, file_id))
     except Exception as exc:
-        result_queue.put(("error", repr(exc)))
+        result_queue.put(("delete_error", owner_id, repr(exc)))
     finally:
         db.close()
 
@@ -926,8 +926,10 @@ def test_content_store_across_backend_processes():
         assert process.exitcode == 0
 
     upload_results = [result_queue.get(timeout=5) for _ in processes]
-    assert all(kind == "ok" for kind, _ in upload_results), upload_results
-    file_ids = [value for _, value in upload_results]
+    assert all(kind == "upload_ok" for kind, _, _ in upload_results), upload_results
+    file_by_owner = {owner: file_id for _, owner, file_id in upload_results}
+    assert set(file_by_owner) == set(owners)
+    file_ids = [file_by_owner[owner] for owner in owners]
 
     db = SessionLocal()
     try:
@@ -940,6 +942,31 @@ def test_content_store_across_backend_processes():
         assert content.status == "ACTIVE"
     finally:
         db.close()
+
+    # Upload ve delete işlemlerini farklı process'lerde aynı anda başlat.
+    mixed_owner = f"mp-owner-{marker}-mixed"
+    mixed_processes = [
+        context.Process(
+            target=_multiprocess_delete,
+            args=(file_ids[0], owners[0], result_queue),
+        ),
+        context.Process(
+            target=_multiprocess_upload,
+            args=(mixed_owner, payload, "multi-mixed.txt", result_queue),
+        ),
+    ]
+    for process in mixed_processes:
+        process.start()
+    for process in mixed_processes:
+        process.join(30)
+        assert process.exitcode == 0
+    mixed_results = [result_queue.get(timeout=5) for _ in mixed_processes]
+    assert {result[0] for result in mixed_results} == {"delete_ok", "upload_ok"}, mixed_results
+    mixed_upload = next(result for result in mixed_results if result[0] == "upload_ok")
+    mixed_delete = next(result for result in mixed_results if result[0] == "delete_ok")
+    assert mixed_delete[1:] == (owners[0], file_ids[0])
+    file_ids = file_ids[1:] + [mixed_upload[2]]
+    owners = owners[1:] + [mixed_owner]
 
     delete_processes = [
         context.Process(
@@ -955,7 +982,7 @@ def test_content_store_across_backend_processes():
         assert process.exitcode == 0
 
     delete_results = [result_queue.get(timeout=5) for _ in delete_processes]
-    assert all(kind == "ok" for kind, _ in delete_results), delete_results
+    assert all(kind == "delete_ok" for kind, _, _ in delete_results), delete_results
 
     db = SessionLocal()
     try:
